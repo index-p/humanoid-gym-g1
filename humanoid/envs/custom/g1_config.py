@@ -55,14 +55,14 @@ class G1Cfg(LeggedRobotCfg):
         torque_limit = 0.85
 
     class asset(LeggedRobotCfg.asset):
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/XBot/urdf/XBot-L.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/g1/urdf/g1_12dof.urdf'
 
-        name = "XBot-L"
+        name = "g1"
         foot_name = "ankle_roll"
         knee_name = "knee"
 
-        terminate_after_contacts_on = ['base_link']
-        penalize_contacts_on = ["base_link"]
+        terminate_after_contacts_on = ['hip']
+        penalize_contacts_on = ["pelvis"]
         self_collisions = 0  # 1 to disable, 0 to enable...bitwise filter
         flip_visual_attachments = False
         replace_cylinder_with_capsule = False
@@ -98,30 +98,54 @@ class G1Cfg(LeggedRobotCfg):
             height_measurements = 0.1
 
     class init_state(LeggedRobotCfg.init_state):
-        pos = [0.0, 0.0, 0.95]
+        pos = [0.0, 0.0, 0.80]
 
         default_joint_angles = {  # = target angles [rad] when action = 0.0
-            'left_leg_roll_joint': 0.,
-            'left_leg_yaw_joint': 0.,
-            'left_leg_pitch_joint': 0.,
-            'left_knee_joint': 0.,
-            'left_ankle_pitch_joint': 0.,
-            'left_ankle_roll_joint': 0.,
-            'right_leg_roll_joint': 0.,
-            'right_leg_yaw_joint': 0.,
-            'right_leg_pitch_joint': 0.,
-            'right_knee_joint': 0.,
-            'right_ankle_pitch_joint': 0.,
-            'right_ankle_roll_joint': 0.,
+            # 'left_leg_roll_joint': 0.,
+            # 'left_leg_yaw_joint': 0.,
+            # 'left_leg_pitch_joint': 0.,
+            # 'left_knee_joint': 0.,
+            # 'left_ankle_pitch_joint': 0.,
+            # 'left_ankle_roll_joint': 0.,
+            # 'right_leg_roll_joint': 0.,
+            # 'right_leg_yaw_joint': 0.,
+            # 'right_leg_pitch_joint': 0.,
+            # 'right_knee_joint': 0.,
+            # 'right_ankle_pitch_joint': 0.,
+            # 'right_ankle_roll_joint': 0.,
+            'left_hip_yaw_joint' : 0. ,   
+            'left_hip_roll_joint' : 0,               
+            'left_hip_pitch_joint' : -0.1,         
+            'left_knee_joint' : 0.3,       
+            'left_ankle_pitch_joint' : -0.2,     
+            'left_ankle_roll_joint' : 0,     
+            'right_hip_yaw_joint' : 0., 
+            'right_hip_roll_joint' : 0, 
+            'right_hip_pitch_joint' : -0.1,                                       
+            'right_knee_joint' : 0.3,                                             
+            'right_ankle_pitch_joint': -0.2,                              
+            'right_ankle_roll_joint' : 0,       
+            # 'torso_joint' : 0.
         }
 
     class control(LeggedRobotCfg.control):
         # PD Drive parameters:
-        stiffness = {'leg_roll': 200.0, 'leg_pitch': 350.0, 'leg_yaw': 200.0,
-                     'knee': 350.0, 'ankle': 15}
-        damping = {'leg_roll': 10, 'leg_pitch': 10, 'leg_yaw':
-                   10, 'knee': 10, 'ankle': 10}
-
+        # stiffness = {'leg_roll': 200.0, 'leg_pitch': 350.0, 'leg_yaw': 200.0,
+        #              'knee': 350.0, 'ankle': 15}
+        # damping = {'leg_roll': 10, 'leg_pitch': 10, 'leg_yaw':
+        #            10, 'knee': 10, 'ankle': 10}
+        stiffness = {'hip_roll': 100,
+                     'hip_pitch': 100,
+                     'hip_yaw': 100,
+                     'knee': 150,
+                     'ankle': 40,
+                     }  # [N*m/rad]
+        damping = {  'hip_roll': 2,
+                     'hip_pitch': 2,
+                     'hip_yaw': 2,
+                     'knee': 4,
+                     'ankle': 2,
+                     }
         # action scale: target angle = actionScale * action + defaultAngle
         action_scale = 0.25
         # decimation: Number of control action updates @ sim DT per policy DT
@@ -172,7 +196,7 @@ class G1Cfg(LeggedRobotCfg):
             heading = [-3.14, 3.14]
 
     class rewards:
-        base_height_target = 0.89
+        base_height_target = 0.78
         min_dist = 0.2
         max_dist = 0.5
         # put some settings here for LLM parameter tuning
@@ -252,7 +276,7 @@ class G1CfgPPO(LeggedRobotCfgPPO):
 
         # logging
         save_interval = 100  # Please check for potential savings every `save_interval` iterations.
-        experiment_name = 'XBot_ppo'
+        experiment_name = 'G1_ppo'
         run_name = ''
         # Load and resume
         resume = False

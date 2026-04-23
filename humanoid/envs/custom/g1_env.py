@@ -39,9 +39,9 @@ from humanoid.envs import LeggedRobot
 from humanoid.utils.terrain import  HumanoidTerrain
 
 
-class XBotLFreeEnv(LeggedRobot):
+class G1FreeEnv(LeggedRobot):
     '''
-    XBotLFreeEnv is a class that represents a custom environment for a legged robot.
+    G1FreeEnv is a class that represents a custom environment for a legged robot.
 
     Args:
         cfg (LeggedRobotCfg): Configuration object for the legged robot.
