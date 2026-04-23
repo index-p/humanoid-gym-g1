@@ -83,6 +83,11 @@ def play(args):
         export_policy_as_jit(ppo_runner.alg.actor_critic, path)
         print('Exported policy as jit script to: ', path)
 
+    output_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'videos', train_cfg.runner.experiment_name)
+    output_stem = datetime.now().strftime('%b%d_%H-%M-%S') + args.run_name
+    os.makedirs(output_dir, exist_ok=True)
+    plot_path = os.path.join(output_dir, output_stem + '_states.png')
+
     logger = Logger(env.dt)
     robot_index = 0 # which robot is used for logging
     joint_index = 1 # which joint is used for logging
@@ -103,14 +108,8 @@ def play(args):
             gymapi.FOLLOW_POSITION)
 
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
-        video_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'videos')
-        experiment_dir = os.path.join(LEGGED_GYM_ROOT_DIR, 'videos', train_cfg.runner.experiment_name)
-        dir = os.path.join(experiment_dir, datetime.now().strftime('%b%d_%H-%M-%S')+ args.run_name + '.mp4')
-        if not os.path.exists(video_dir):
-            os.mkdir(video_dir)
-        if not os.path.exists(experiment_dir):
-            os.mkdir(experiment_dir)
-        video = cv2.VideoWriter(dir, fourcc, 50.0, (1920, 1080))
+        video_path = os.path.join(output_dir, output_stem + '.mp4')
+        video = cv2.VideoWriter(video_path, fourcc, 50.0, (1920, 1080))
 
     for i in tqdm(range(stop_state_log)):
 
@@ -156,7 +155,7 @@ def play(args):
                 logger.log_rewards(infos["episode"], num_episodes)
 
     logger.print_rewards()
-    logger.plot_states()
+    logger.plot_states(save_path=plot_path)
     
     if RENDER:
         video.release()

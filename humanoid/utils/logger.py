@@ -29,6 +29,7 @@
 #
 # Copyright (c) 2024 Beijing RobotEra TECHNOLOGY CO.,LTD. All rights reserved.
 
+import os
 import matplotlib.pyplot as plt
 import numpy as np
 from collections import defaultdict
@@ -59,14 +60,18 @@ class Logger:
         self.state_log.clear()
         self.rew_log.clear()
 
-    def plot_states(self):
+    def plot_states(self, save_path=None):
+        if save_path is not None:
+            self._plot(save_path=save_path)
+            return
         self.plot_process = Process(target=self._plot)
         self.plot_process.start()
 
-    def _plot(self):
+    def _plot(self, save_path=None):
         nb_rows = 3
         nb_cols = 3
         fig, axs = plt.subplots(nb_rows, nb_cols)
+        time = np.array([])
         for key, value in self.state_log.items():
             time = np.linspace(0, len(value)*self.dt, len(value))
             break
@@ -124,7 +129,14 @@ class Logger:
         if log["dof_torque"]!=[]: a.plot(time, log["dof_torque"], label='measured')
         a.set(xlabel='time [s]', ylabel='Joint Torque [Nm]', title='Torque')
         a.legend()
-        plt.show()
+        fig.tight_layout()
+        if save_path is not None:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            fig.savefig(save_path, dpi=200, bbox_inches='tight')
+            plt.close(fig)
+            print(f"Saved state plots to: {save_path}")
+        else:
+            plt.show()
 
     def print_rewards(self):
         print("Average rewards per second:")
@@ -134,5 +146,5 @@ class Logger:
         print(f"Total number of episodes: {self.num_episodes}")
     
     def __del__(self):
-        if self.plot_process is not None:
+        if self.plot_process is not None and self.plot_process.is_alive():
             self.plot_process.kill()
