@@ -171,17 +171,31 @@ class G1Cfg(LeggedRobotCfg):
             contact_collection = 2
 
     class domain_rand:
+        # randomize_friction = True
+        # friction_range = [0.4, 2.0]
+        # randomize_base_mass = True
+        # added_mass_range = [-1.5, 1.5]
+        # push_robots = True
+        # push_interval_s = 4
+        # max_push_vel_xy = 0.2
+        # max_push_ang_vel = 0.4
+        # # dynamic randomization
+        # action_delay = 0.5
+        # action_noise = 0.02
+        # class domain_rand:
         randomize_friction = True
-        friction_range = [0.1, 2.0]
+        friction_range = [0.6, 1.0]
+
         randomize_base_mass = True
-        added_mass_range = [-5., 5.]
-        push_robots = True
-        push_interval_s = 4
-        max_push_vel_xy = 0.2
-        max_push_ang_vel = 0.4
-        # dynamic randomization
-        action_delay = 0.5
-        action_noise = 0.02
+        added_mass_range = [-0.5, 0.5]
+
+        push_robots = False
+        push_interval_s = 6
+        max_push_vel_xy = 0.05
+        max_push_ang_vel = 0.05
+
+        action_delay = 0.0
+        action_noise = 0.005
 
     class commands(LeggedRobotCfg.commands):
         # Vers: lin_vel_x, lin_vel_y, ang_vel_yaw, heading (in heading mode ang_vel_yaw is recomputed from heading error)
@@ -207,7 +221,7 @@ class G1Cfg(LeggedRobotCfg):
         only_positive_rewards = True
         # tracking reward = exp(error*sigma)
         tracking_sigma = 5
-        max_contact_force = 700  # Forces above this value are penalized
+        max_contact_force = 450  # Forces above this value are penalized
 
         class scales:
             # reference motion tracking
