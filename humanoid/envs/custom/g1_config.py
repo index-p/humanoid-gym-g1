@@ -61,7 +61,8 @@ class G1Cfg(LeggedRobotCfg):
         foot_name = "ankle_roll"
         knee_name = "knee"
 
-        terminate_after_contacts_on = ['hip']
+        #terminate_after_contacts_on = ['hip','pelvis']
+        terminate_after_contacts_on = ['pelvis', 'torso', 'head', 'shoulder', 'elbow', 'wrist']
         penalize_contacts_on = ["pelvis"]
         self_collisions = 0  # 1 to disable, 0 to enable...bitwise filter
         flip_visual_attachments = False
