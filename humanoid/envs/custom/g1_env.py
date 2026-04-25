@@ -75,6 +75,16 @@ class G1FreeEnv(LeggedRobot):
     '''
     def __init__(self, cfg: LeggedRobotCfg, sim_params, physics_engine, sim_device, headless):
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
+        self.left_hip_pitch_idx = self.dof_names.index("left_hip_pitch_joint")
+        self.left_hip_roll_idx = self.dof_names.index("left_hip_roll_joint")
+        self.left_hip_yaw_idx = self.dof_names.index("left_hip_yaw_joint")
+        self.left_knee_idx = self.dof_names.index("left_knee_joint")
+        self.left_ankle_pitch_idx = self.dof_names.index("left_ankle_pitch_joint")
+        self.right_hip_pitch_idx = self.dof_names.index("right_hip_pitch_joint")
+        self.right_hip_roll_idx = self.dof_names.index("right_hip_roll_joint")
+        self.right_hip_yaw_idx = self.dof_names.index("right_hip_yaw_joint")
+        self.right_knee_idx = self.dof_names.index("right_knee_joint")
+        self.right_ankle_pitch_idx = self.dof_names.index("right_ankle_pitch_joint")
         self.last_feet_z = 0.05
         self.feet_height = torch.zeros((self.num_envs, 2), device=self.device)
         self.reset_idx(torch.tensor(range(self.num_envs), device=self.device))
@@ -128,14 +138,14 @@ class G1FreeEnv(LeggedRobot):
         scale_2 = 2 * scale_1
         # left foot stance phase set to default joint pos
         sin_pos_l[sin_pos_l > 0] = 0
-        self.ref_dof_pos[:, 2] = sin_pos_l * scale_1
-        self.ref_dof_pos[:, 3] = sin_pos_l * scale_2
-        self.ref_dof_pos[:, 4] = sin_pos_l * scale_1
+        self.ref_dof_pos[:, self.left_hip_pitch_idx] = sin_pos_l * scale_1
+        self.ref_dof_pos[:, self.left_knee_idx] = sin_pos_l * scale_2
+        self.ref_dof_pos[:, self.left_ankle_pitch_idx] = sin_pos_l * scale_1
         # right foot stance phase set to default joint pos
         sin_pos_r[sin_pos_r < 0] = 0
-        self.ref_dof_pos[:, 8] = sin_pos_r * scale_1
-        self.ref_dof_pos[:, 9] = sin_pos_r * scale_2
-        self.ref_dof_pos[:, 10] = sin_pos_r * scale_1
+        self.ref_dof_pos[:, self.right_hip_pitch_idx] = sin_pos_r * scale_1
+        self.ref_dof_pos[:, self.right_knee_idx] = sin_pos_r * scale_2
+        self.ref_dof_pos[:, self.right_ankle_pitch_idx] = sin_pos_r * scale_1
         # Double support phase
         self.ref_dof_pos[torch.abs(sin_pos) < 0.1] = 0
 
@@ -361,12 +371,12 @@ class G1FreeEnv(LeggedRobot):
 
     def _reward_default_joint_pos(self):
         """
-        Calculates the reward for keeping joint positions close to default positions, with a focus 
-        on penalizing deviation in yaw and roll directions. Excludes yaw and roll from the main penalty.
+        Calculates the reward for keeping joint positions close to default positions,
+        with extra focus on hip roll/yaw deviations.
         """
         joint_diff = self.dof_pos - self.default_joint_pd_target
-        left_yaw_roll = joint_diff[:, :2]
-        right_yaw_roll = joint_diff[:, 6: 8]
+        left_yaw_roll = joint_diff[:, [self.left_hip_roll_idx, self.left_hip_yaw_idx]]
+        right_yaw_roll = joint_diff[:, [self.right_hip_roll_idx, self.right_hip_yaw_idx]]
         yaw_roll = torch.norm(left_yaw_roll, dim=1) + torch.norm(right_yaw_roll, dim=1)
         yaw_roll = torch.clamp(yaw_roll - 0.1, 0, 50)
         return torch.exp(-yaw_roll * 100) - 0.01 * torch.norm(joint_diff, dim=1)
