@@ -205,9 +205,11 @@ class G1Cfg(LeggedRobotCfg):
         heading_command = True  # if true: compute ang vel command from heading error
 
         class ranges:
-            lin_vel_x = [-0.3, 0.6]   # min max [m/s]
+            #lin_vel_x = [-0.3, 0.6]   # min max [m/s]
+            lin_vel_x = [-0.5, 1.2]   # min max [m/s]
             lin_vel_y = [-0.3, 0.3]   # min max [m/s]
-            ang_vel_yaw = [-0.3, 0.3] # min max [rad/s]
+            #ang_vel_yaw = [-0.3, 0.3] # min max [rad/s]
+            ang_vel_yaw = [-0.5, 0.5] # min max [rad/s]
             heading = [-3.14, 3.14]
 
     class rewards:
@@ -216,8 +218,10 @@ class G1Cfg(LeggedRobotCfg):
         max_dist = 0.5
         # put some settings here for LLM parameter tuning
         target_joint_pos_scale = 0.17    # rad
-        target_feet_height = 0.06        # m
-        cycle_time = 0.64                # sec
+        #target_feet_height = 0.06       # m
+        target_feet_height = 0.08       # m
+        #cycle_time = 0.64                # sec
+        cycle_time = 0.55                # sec
         # if true negative total rewards are clipped at zero (avoids early termination problems)
         only_positive_rewards = True
         # tracking reward = exp(error*sigma)
@@ -237,11 +241,11 @@ class G1Cfg(LeggedRobotCfg):
             # contact
             feet_contact_forces = -0.01
             # vel tracking
-            tracking_lin_vel = 1.2
+            tracking_lin_vel = 1.5
             tracking_ang_vel = 1.1
             vel_mismatch_exp = 0.5  # lin_z; ang x,y
-            low_speed = 0.2
-            track_vel_hard = 0.5
+            low_speed = 0.4
+            track_vel_hard = 0.8
             # base pos
             default_joint_pos = 0.5
             orientation = 1.
