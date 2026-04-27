@@ -39,8 +39,12 @@ from .custom.humanoid_env import XBotLFreeEnv
 from .custom.g1_config import G1Cfg, G1CfgPPO
 from .custom.g1_env import G1FreeEnv
 
+from .custom.g1run_config import G1runCfg, G1runCfgPPO
+from .custom.g1run_env import G1runFreeEnv
+
 from humanoid.utils.task_registry import task_registry
 
 
 task_registry.register( "humanoid_ppo", XBotLFreeEnv, XBotLCfg(), XBotLCfgPPO() )
 task_registry.register( "g1_ppo", G1FreeEnv, G1Cfg(), G1CfgPPO() )
+task_registry.register( "g1_run", G1runFreeEnv, G1runCfg(), G1runCfgPPO() )
