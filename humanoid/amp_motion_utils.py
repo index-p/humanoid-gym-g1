@@ -1,5 +1,6 @@
 import numpy as np
 import pickle
+import importlib
 
 
 G1_DEFAULT_JOINT_NAMES = [
@@ -21,6 +22,38 @@ G1_DEFAULT_DOF_POS = np.asarray(
     [0.0, 0.0, -0.1, 0.3, -0.2, 0.0, 0.0, 0.0, -0.1, 0.3, -0.2, 0.0],
     dtype=np.float32,
 )
+
+G1_29DOF_JOINT_NAMES = [
+    "left_hip_pitch_joint",
+    "left_hip_roll_joint",
+    "left_hip_yaw_joint",
+    "left_knee_joint",
+    "left_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+    "right_hip_pitch_joint",
+    "right_hip_roll_joint",
+    "right_hip_yaw_joint",
+    "right_knee_joint",
+    "right_ankle_pitch_joint",
+    "right_ankle_roll_joint",
+    "waist_yaw_joint",
+    "waist_roll_joint",
+    "waist_pitch_joint",
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "left_elbow_joint",
+    "left_wrist_roll_joint",
+    "left_wrist_pitch_joint",
+    "left_wrist_yaw_joint",
+    "right_shoulder_pitch_joint",
+    "right_shoulder_roll_joint",
+    "right_shoulder_yaw_joint",
+    "right_elbow_joint",
+    "right_wrist_roll_joint",
+    "right_wrist_pitch_joint",
+    "right_wrist_yaw_joint",
+]
 
 
 def resolve_dt(fps=None, dt=None):
@@ -75,13 +108,39 @@ def unwrap_motion_container(raw_data):
     return current
 
 
+class _NumpyCompatUnpickler(pickle.Unpickler):
+    """Loads numpy-backed pickles across numpy internal module renames."""
+
+    _MODULE_ALIASES = {
+        "numpy._core": "numpy.core",
+        "numpy._core.multiarray": "numpy.core.multiarray",
+        "numpy._core.numeric": "numpy.core.numeric",
+    }
+
+    def find_class(self, module, name):
+        try:
+            return super().find_class(module, name)
+        except ModuleNotFoundError:
+            alias = self._MODULE_ALIASES.get(module)
+            if alias is None:
+                raise
+            imported = importlib.import_module(alias)
+            return getattr(imported, name)
+
+
 def load_motion_file(path):
     if path.endswith(".npz"):
         with np.load(path, allow_pickle=True) as raw_data:
             return {key: raw_data[key] for key in raw_data.files}
     if path.endswith(".pkl") or path.endswith(".pickle"):
         with open(path, "rb") as file:
-            raw_data = pickle.load(file)
+            try:
+                raw_data = pickle.load(file)
+            except ModuleNotFoundError as exc:
+                if not str(exc).startswith("No module named 'numpy._core"):
+                    raise
+                file.seek(0)
+                raw_data = _NumpyCompatUnpickler(file).load()
         return unwrap_motion_container(raw_data)
     raise ValueError(f"Unsupported motion file format for: {path}")
 
@@ -107,6 +166,14 @@ def reorder_dof_by_joint_names(dof_pos, joint_names, target_joint_names):
     return dof_pos[:, indices]
 
 
+def _infer_g1_joint_names(dof_pos):
+    if dof_pos.shape[1] == len(G1_29DOF_JOINT_NAMES):
+        return list(G1_29DOF_JOINT_NAMES)
+    if dof_pos.shape[1] == len(G1_DEFAULT_JOINT_NAMES):
+        return list(G1_DEFAULT_JOINT_NAMES)
+    return None
+
+
 def canonicalize_motion_dict(raw_data, target_joint_names=None, fps=None, dt=None):
     raw_data = unwrap_motion_container(raw_data)
     dof_pos = _lookup_first(raw_data, ("dof_pos", "joint_pos", "qpos"))
@@ -115,10 +182,17 @@ def canonicalize_motion_dict(raw_data, target_joint_names=None, fps=None, dt=Non
     dof_pos = _to_numpy_array(dof_pos)
 
     source_joint_names = _normalize_joint_names(_lookup_first(raw_data, ("joint_names", "dof_names")))
+    if source_joint_names is None:
+        source_joint_names = _infer_g1_joint_names(dof_pos)
     joint_names = source_joint_names
     if target_joint_names is not None:
         if joint_names is not None:
             dof_pos = reorder_dof_by_joint_names(dof_pos, joint_names, target_joint_names)
+        else:
+            raise ValueError(
+                "target_joint_names were requested, but the motion data does not expose joint names "
+                "and its dof dimension could not be inferred."
+            )
         joint_names = list(target_joint_names)
     elif joint_names is None:
         joint_names = [f"joint_{idx}" for idx in range(dof_pos.shape[1])]
@@ -129,7 +203,7 @@ def canonicalize_motion_dict(raw_data, target_joint_names=None, fps=None, dt=Non
     else:
         root_pos = _to_numpy_array(root_pos)
 
-    root_quat = _lookup_first(raw_data, ("root_quat", "base_quat", "pelvis_quat"))
+    root_quat = _lookup_first(raw_data, ("root_quat", "root_rot", "base_quat", "pelvis_quat"))
     if root_quat is None:
         root_quat = _identity_quat(dof_pos.shape[0])
     else:
@@ -151,6 +225,18 @@ def canonicalize_motion_dict(raw_data, target_joint_names=None, fps=None, dt=Non
         feet_pos_world = _to_numpy_array(feet_pos_world).reshape(dof_pos.shape[0], -1)
         if feet_pos_world.size == 0:
             feet_pos_world = None
+    if feet_pos_world is None:
+        local_body_pos = _lookup_first(raw_data, ("local_body_pos",))
+        link_body_list = _normalize_joint_names(_lookup_first(raw_data, ("link_body_list", "body_names", "link_names")))
+        if local_body_pos is not None and link_body_list is not None:
+            local_body_pos = _to_numpy_array(local_body_pos).reshape(dof_pos.shape[0], -1, 3)
+            toe_names = ("left_toe_link", "right_toe_link")
+            if all(name in link_body_list for name in toe_names):
+                toe_indices = [link_body_list.index(name) for name in toe_names]
+                toe_local = local_body_pos[:, toe_indices, :]
+                repeated_quat = np.repeat(root_quat[:, None, :], len(toe_indices), axis=1)
+                toe_world = quat_rotate(repeated_quat, toe_local) + root_pos[:, None, :]
+                feet_pos_world = toe_world.reshape(dof_pos.shape[0], -1)
 
     resolved_dt = resolve_dt(fps=fps or _lookup_first(raw_data, ("fps",)), dt=dt or _lookup_first(raw_data, ("dt",)))
     resolved_fps = resolve_fps(fps=fps or _lookup_first(raw_data, ("fps",)), dt=resolved_dt)
@@ -204,6 +290,14 @@ def quat_rotate_inverse(quat, vec):
     vec = _to_numpy_array(vec)
     vec_quat = np.concatenate((vec, np.zeros(vec.shape[:-1] + (1,), dtype=np.float32)), axis=-1)
     rotated = quat_multiply(quat_conjugate(quat), quat_multiply(vec_quat, quat))
+    return rotated[..., :3]
+
+
+def quat_rotate(quat, vec):
+    quat = _to_numpy_array(quat)
+    vec = _to_numpy_array(vec)
+    vec_quat = np.concatenate((vec, np.zeros(vec.shape[:-1] + (1,), dtype=np.float32)), axis=-1)
+    rotated = quat_multiply(quat_multiply(quat, vec_quat), quat_conjugate(quat))
     return rotated[..., :3]
 
 
