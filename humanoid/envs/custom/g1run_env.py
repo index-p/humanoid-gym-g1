@@ -85,10 +85,20 @@ class G1runFreeEnv(LeggedRobot):
         self.right_hip_yaw_idx = self.dof_names.index("right_hip_yaw_joint")
         self.right_knee_idx = self.dof_names.index("right_knee_joint")
         self.right_ankle_pitch_idx = self.dof_names.index("right_ankle_pitch_joint")
+        self.phase_offsets = torch.tensor(
+            [self.cfg.rewards.gait_phase_offset_l, self.cfg.rewards.gait_phase_offset_r],
+            device=self.device,
+        ).unsqueeze(0)
+        self.phase_ratios = torch.full(
+            (self.num_envs, 2), self.cfg.rewards.gait_swing_ratio, device=self.device
+        )
+        self.ref_action = torch.zeros((self.num_envs, self.num_actions), device=self.device)
         self.last_feet_z = 0.05
         self.feet_height = torch.zeros((self.num_envs, 2), device=self.device)
+        self._terminal_amp_obs = torch.empty(0, device=self.device)
         self.reset_idx(torch.tensor(range(self.num_envs), device=self.device))
         self.compute_observations()
+        self.num_amp_obs = self.get_amp_observations().shape[-1]
 
     def _push_robots(self):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
@@ -107,49 +117,37 @@ class G1runFreeEnv(LeggedRobot):
         self.gym.set_actor_root_state_tensor(
             self.sim, gymtorch.unwrap_tensor(self.root_states))
 
-    def  _get_phase(self):
-        cycle_time = self.cfg.rewards.cycle_time
-        phase = self.episode_length_buf * self.dt / cycle_time
-        return phase
+    def _get_phase(self):
+        cycle_time = self.cfg.rewards.gait_cycle
+        phase = (self.episode_length_buf.float().unsqueeze(1) * self.dt / cycle_time) + self.phase_offsets
+        return torch.remainder(phase, 1.0)
+
+    def _get_gait_clock(self):
+        phase = self._get_phase()
+        swing_ratio = self.phase_ratios
+        transition_ratio = self.cfg.rewards.gait_transition_ratio
+
+        swing_flag = (phase >= transition_ratio) & (phase <= (swing_ratio - transition_ratio))
+        stance_flag = (phase >= (swing_ratio + transition_ratio)) & (phase <= (1.0 - transition_ratio))
+
+        transition_start = phase < transition_ratio
+        transition_mid = (phase > (swing_ratio - transition_ratio)) & (phase < (swing_ratio + transition_ratio))
+        transition_end = phase > (1.0 - transition_ratio)
+
+        swing_clock = (
+            1.0 * swing_flag
+            + (0.5 + phase / (2.0 * transition_ratio)) * transition_start
+            - (phase - swing_ratio - transition_ratio) / (2.0 * transition_ratio) * transition_mid
+            + 0.0 * stance_flag
+            + (phase - 1.0 + transition_ratio) / (2.0 * transition_ratio) * transition_end
+        )
+        swing_clock = torch.clamp(swing_clock, 0.0, 1.0)
+        stance_clock = 1.0 - swing_clock
+        return swing_clock, stance_clock
 
     def _get_gait_phase(self):
-        # return float mask 1 is stance, 0 is swing
-        phase = self._get_phase()
-        sin_pos = torch.sin(2 * torch.pi * phase)
-        # Add double support phase
-        stance_mask = torch.zeros((self.num_envs, 2), device=self.device)
-        # left foot stance
-        stance_mask[:, 0] = sin_pos >= 0
-        # right foot stance
-        stance_mask[:, 1] = sin_pos < 0
-        # Double support phase
-        stance_mask[torch.abs(sin_pos) < 0.1] = 1
-
-        return stance_mask
-    
-
-    def compute_ref_state(self):
-        phase = self._get_phase()
-        sin_pos = torch.sin(2 * torch.pi * phase)
-        sin_pos_l = sin_pos.clone()
-        sin_pos_r = sin_pos.clone()
-        self.ref_dof_pos = torch.zeros_like(self.dof_pos)
-        scale_1 = self.cfg.rewards.target_joint_pos_scale
-        scale_2 = 2 * scale_1
-        # left foot stance phase set to default joint pos
-        sin_pos_l[sin_pos_l > 0] = 0
-        self.ref_dof_pos[:, self.left_hip_pitch_idx] = sin_pos_l * scale_1
-        self.ref_dof_pos[:, self.left_knee_idx] = sin_pos_l * scale_2
-        self.ref_dof_pos[:, self.left_ankle_pitch_idx] = sin_pos_l * scale_1
-        # right foot stance phase set to default joint pos
-        sin_pos_r[sin_pos_r < 0] = 0
-        self.ref_dof_pos[:, self.right_hip_pitch_idx] = sin_pos_r * scale_1
-        self.ref_dof_pos[:, self.right_knee_idx] = sin_pos_r * scale_2
-        self.ref_dof_pos[:, self.right_ankle_pitch_idx] = sin_pos_r * scale_1
-        # Double support phase
-        self.ref_dof_pos[torch.abs(sin_pos) < 0.1] = 0
-
-        self.ref_action = 2 * self.ref_dof_pos
+        _, stance_clock = self._get_gait_clock()
+        return (stance_clock > 0.5).float()
 
 
     def create_sim(self):
@@ -187,12 +185,12 @@ class G1runFreeEnv(LeggedRobot):
             self.cfg.env.num_single_obs, device=self.device)
         self.add_noise = self.cfg.noise.add_noise
         noise_scales = self.cfg.noise.noise_scales
-        noise_vec[0: 5] = 0.  # commands
-        noise_vec[5: 17] = noise_scales.dof_pos * self.obs_scales.dof_pos
-        noise_vec[17: 29] = noise_scales.dof_vel * self.obs_scales.dof_vel
-        noise_vec[29: 41] = 0.  # previous actions
-        noise_vec[41: 44] = noise_scales.ang_vel * self.obs_scales.ang_vel   # ang vel
-        noise_vec[44: 47] = noise_scales.quat * self.obs_scales.quat         # euler x,y
+        noise_vec[0: 9] = 0.  # gait phase and commands
+        noise_vec[9: 21] = noise_scales.dof_pos * self.obs_scales.dof_pos
+        noise_vec[21: 33] = noise_scales.dof_vel * self.obs_scales.dof_vel
+        noise_vec[33: 45] = 0.  # previous actions
+        noise_vec[45: 48] = noise_scales.ang_vel * self.obs_scales.ang_vel   # ang vel
+        noise_vec[48: 51] = noise_scales.quat * self.obs_scales.quat         # euler x,y
         return noise_vec
 
 
@@ -210,29 +208,24 @@ class G1runFreeEnv(LeggedRobot):
     def compute_observations(self):
 
         phase = self._get_phase()
-        self.compute_ref_state()
-
-        sin_pos = torch.sin(2 * torch.pi * phase).unsqueeze(1)
-        cos_pos = torch.cos(2 * torch.pi * phase).unsqueeze(1)
+        sin_pos = torch.sin(2 * torch.pi * phase)
+        cos_pos = torch.cos(2 * torch.pi * phase)
 
         stance_mask = self._get_gait_phase()
-        contact_mask = self.contact_forces[:, self.feet_indices, 2] > 5.
+        contact_mask = (self.contact_forces[:, self.feet_indices, 2] > 5.).float()
 
         self.command_input = torch.cat(
-            (sin_pos, cos_pos, self.commands[:, :3] * self.commands_scale), dim=1)
+            (sin_pos, cos_pos, self.phase_ratios, self.commands[:, :3] * self.commands_scale), dim=1)
         
         q = (self.dof_pos - self.default_dof_pos) * self.obs_scales.dof_pos
         dq = self.dof_vel * self.obs_scales.dof_vel
-        
-        diff = self.dof_pos - self.ref_dof_pos
 
         self.privileged_obs_buf = torch.cat((
-            self.command_input,  # 2 + 3
+            self.command_input,  # 4 + 2 + 3
             (self.dof_pos - self.default_joint_pd_target) * \
             self.obs_scales.dof_pos,  # 12
             self.dof_vel * self.obs_scales.dof_vel,  # 12
             self.actions,  # 12
-            diff,  # 12
             self.base_lin_vel * self.obs_scales.lin_vel,  # 3
             self.base_ang_vel * self.obs_scales.ang_vel,  # 3
             self.base_euler_xyz * self.obs_scales.quat,  # 3
@@ -245,7 +238,7 @@ class G1runFreeEnv(LeggedRobot):
         ), dim=-1)
 
         obs_buf = torch.cat((
-            self.command_input,  # 5 = 2D(sin cos) + 3D(vel_x, vel_y, aug_vel_yaw)
+            self.command_input,  # 9 = 4D(sin cos) + 2D(swing ratio) + 3D commands
             q,    # 12D
             dq,  # 12D
             self.actions,   # 12D
@@ -278,17 +271,54 @@ class G1runFreeEnv(LeggedRobot):
         for i in range(self.critic_history.maxlen):
             self.critic_history[i][env_ids] *= 0
 
-# ================================================ Rewards ================================================== #
-    def _reward_joint_pos(self):
-        """
-        Calculates the reward based on the difference between the current joint positions and the target joint positions.
-        """
-        joint_pos = self.dof_pos.clone()
-        pos_target = self.ref_dof_pos.clone()
-        diff = joint_pos - pos_target
-        r = torch.exp(-2 * torch.norm(diff, dim=1)) - 0.2 * torch.norm(diff, dim=1).clamp(0, 0.5)
-        return r
+    def _cache_terminal_amp_observations(self, env_ids):
+        if len(env_ids) == 0:
+            self._terminal_amp_obs = torch.empty(0, self.num_amp_obs, device=self.device)
+            return
+        self._terminal_amp_obs = self._build_amp_observations(env_ids)
 
+    def _build_amp_observations(self, env_ids=None):
+        if env_ids is None:
+            dof_pos = self.dof_pos
+            dof_vel = self.dof_vel
+            root_pos = self.root_states[:, :3]
+            base_quat = self.base_quat
+            rigid_state = self.rigid_state
+            default_dof_pos = self.default_dof_pos.expand(self.num_envs, -1)
+        else:
+            dof_pos = self.dof_pos[env_ids]
+            dof_vel = self.dof_vel[env_ids]
+            root_pos = self.root_states[env_ids, :3]
+            base_quat = self.base_quat[env_ids]
+            rigid_state = self.rigid_state[env_ids]
+            default_dof_pos = self.default_dof_pos.expand(dof_pos.shape[0], -1)
+
+        foot_world = rigid_state[:, self.feet_indices, :3] - root_pos.unsqueeze(1)
+        foot_quat = base_quat.repeat_interleave(self.feet_indices.shape[0], dim=0)
+        foot_local = quat_rotate_inverse(
+            foot_quat, foot_world.reshape(-1, 3)
+        ).reshape(dof_pos.shape[0], -1)
+
+        return torch.cat(
+            (
+                dof_pos - default_dof_pos,
+                dof_vel,
+                foot_local,
+            ),
+            dim=-1,
+        )
+
+    def get_amp_observations(self):
+        return self._build_amp_observations()
+
+    def get_terminal_amp_observations(self, env_ids):
+        if len(env_ids) == 0:
+            return torch.empty(0, self.num_amp_obs, device=self.device)
+        if self._terminal_amp_obs.numel() == 0:
+            return self._build_amp_observations(env_ids)
+        return self._terminal_amp_obs
+
+# ================================================ Rewards ================================================== #
     def _reward_feet_distance(self):
         """
         Calculates the reward based on the distance between the feet. Penalize feet get close to each other or too far away.
@@ -548,3 +578,19 @@ class G1runFreeEnv(LeggedRobot):
             self.actions + self.last_last_actions - 2 * self.last_actions), dim=1)
         term_3 = 0.05 * torch.sum(torch.abs(self.actions), dim=1)
         return term_1 + term_2 + term_3
+
+    def _reward_gait_feet_force_periodic(self):
+        contact_force = torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1)
+        swing_clock, _ = self._get_gait_clock()
+        return torch.sum(swing_clock * torch.exp(-0.02 * torch.square(contact_force)), dim=1)
+
+    def _reward_gait_feet_speed_periodic(self):
+        foot_speed = torch.norm(self.rigid_state[:, self.feet_indices, 7:10], dim=-1)
+        _, stance_clock = self._get_gait_clock()
+        return torch.sum(stance_clock * torch.exp(-4.0 * torch.square(foot_speed)), dim=1)
+
+    def _reward_gait_feet_support_periodic(self):
+        contact_force = torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1)
+        _, stance_clock = self._get_gait_clock()
+        support_force = 1.0 - torch.exp(-0.01 * torch.square(contact_force))
+        return torch.sum(stance_clock * support_force, dim=1)

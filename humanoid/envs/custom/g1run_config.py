@@ -39,9 +39,9 @@ class G1runCfg(LeggedRobotCfg):
         # change the observation dim
         frame_stack = 15
         c_frame_stack = 3
-        num_single_obs = 47
+        num_single_obs = 51
         num_observations = int(frame_stack * num_single_obs)
-        single_num_privileged_obs = 73
+        single_num_privileged_obs = 65
         num_privileged_obs = int(c_frame_stack * single_num_privileged_obs)
         num_actions = 12
         num_envs = 4096
@@ -216,12 +216,13 @@ class G1runCfg(LeggedRobotCfg):
         base_height_target = 0.78
         min_dist = 0.2
         max_dist = 0.5
-        # put some settings here for LLM parameter tuning
-        target_joint_pos_scale = 0.17    # rad
         #target_feet_height = 0.06       # m
         target_feet_height = 0.08       # m
-        #cycle_time = 0.64                # sec
-        cycle_time = 0.55                # sec
+        gait_cycle = 0.55               # sec
+        gait_swing_ratio = 0.38
+        gait_phase_offset_l = 0.0
+        gait_phase_offset_r = 0.5
+        gait_transition_ratio = 0.05
         # if true negative total rewards are clipped at zero (avoids early termination problems)
         only_positive_rewards = True
         # tracking reward = exp(error*sigma)
@@ -229,12 +230,13 @@ class G1runCfg(LeggedRobotCfg):
         max_contact_force = 450  # Forces above this value are penalized
 
         class scales:
-            # reference motion tracking
-            joint_pos = 1.6
             feet_clearance = 1.
-            feet_contact_number = 1.2
+            feet_contact_number = 0.6
             # gait
             feet_air_time = 1.
+            gait_feet_force_periodic = 1.0
+            gait_feet_speed_periodic = 1.0
+            gait_feet_support_periodic = 0.6
             foot_slip = -0.05
             feet_distance = 0.2
             knee_distance = 0.2
@@ -302,3 +304,21 @@ class G1runCfgPPO(LeggedRobotCfgPPO):
         load_run = -1  # -1 = last run
         checkpoint = -1  # -1 = last saved model
         resume_path = None  # updated from load_run and chkpt
+
+
+class G1runCfgAMPPPO(G1runCfgPPO):
+    runner_class_name = 'AMPOnPolicyRunner'
+
+    class runner(G1runCfgPPO.runner):
+        algorithm_class_name = 'AMPPPO'
+        experiment_name = 'G1run_amp'
+
+    class amp:
+        motion_files = []
+        amp_reward_coef = 1.0
+        amp_task_reward_lerp = 0.3
+        amp_discr_hidden_dims = [512, 256]
+        amp_discr_learning_rate = 1e-4
+        amp_discr_batch_size = 4096
+        amp_replay_buffer_size = 200000
+        amp_grad_penalty_coef = 10.0
