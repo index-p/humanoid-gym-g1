@@ -39,9 +39,9 @@ from humanoid.envs import LeggedRobot
 from humanoid.utils.terrain import  HumanoidTerrain
 
 
-class G1runFreeEnv(LeggedRobot):
+class G1walkFreeEnv(LeggedRobot):
     '''
-    G1runFreeEnv is a class that represents a custom environment for a legged robot.
+    G1walkFreeEnv is a class that represents a custom environment for a legged robot.
 
     Args:
         cfg (LeggedRobotCfg): Configuration object for the legged robot.

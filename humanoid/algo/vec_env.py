@@ -38,12 +38,14 @@ class VecEnv(ABC):
     num_envs: int
     num_obs: int
     num_privileged_obs: int
+    num_amp_obs: int
     num_actions: int
     max_episode_length: int
     privileged_obs_buf: torch.Tensor
     obs_buf: torch.Tensor 
     rew_buf: torch.Tensor
     reset_buf: torch.Tensor
+    reset_env_ids: torch.Tensor
     episode_length_buf: torch.Tensor # current episode duration
     extras: dict
     device: torch.device
@@ -59,3 +61,9 @@ class VecEnv(ABC):
     @abstractmethod
     def get_privileged_observations(self) -> Union[torch.Tensor, None]:
         pass
+
+    def get_amp_observations(self) -> torch.Tensor:
+        raise NotImplementedError("AMP observations are not implemented for this environment")
+
+    def get_terminal_amp_observations(self, env_ids: Union[list, torch.Tensor]) -> torch.Tensor:
+        raise NotImplementedError("Terminal AMP observations are not implemented for this environment")

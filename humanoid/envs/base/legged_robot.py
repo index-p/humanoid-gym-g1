@@ -141,6 +141,7 @@ class LeggedRobot(BaseTask):
         self.check_termination()
         self.compute_reward()
         env_ids = self.reset_buf.nonzero(as_tuple=False).flatten()
+        self._cache_terminal_amp_observations(env_ids)
         self.reset_idx(env_ids)
         self.compute_observations() # in some cases a simulation step might be required to refresh some obs (for example body positions)
 
@@ -152,6 +153,10 @@ class LeggedRobot(BaseTask):
 
         if self.viewer and self.enable_viewer_sync and self.debug_viz:
             self._draw_debug_vis()
+
+    def _cache_terminal_amp_observations(self, env_ids):
+        """Hook for AMP runners that need terminal-state features before reset."""
+        return
 
     def check_termination(self):
         """ Check if environments need to be reset
@@ -170,6 +175,7 @@ class LeggedRobot(BaseTask):
         Args:
             env_ids (list[int]): List of environment ids which must be reset
         """
+        self.reset_env_ids = env_ids.clone()
         if len(env_ids) == 0:
             return
         # update curriculum

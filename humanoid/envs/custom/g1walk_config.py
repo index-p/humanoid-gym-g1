@@ -31,7 +31,7 @@
 from humanoid.envs.base.legged_robot_config import LeggedRobotCfg, LeggedRobotCfgPPO
 
 
-class G1runCfg(LeggedRobotCfg):
+class G1walkCfg(LeggedRobotCfg):
     """
     Configuration class for the G1 humanoid robot.
     """
@@ -272,7 +272,7 @@ class G1runCfg(LeggedRobotCfg):
         clip_actions = 18.
 
 
-class G1runCfgPPO(LeggedRobotCfgPPO):
+class G1walkCfgPPO(LeggedRobotCfgPPO):
     seed = 5
     runner_class_name = 'OnPolicyRunner'   # DWLOnPolicyRunner
 
@@ -297,7 +297,7 @@ class G1runCfgPPO(LeggedRobotCfgPPO):
 
         # logging
         save_interval = 100  # Please check for potential savings every `save_interval` iterations.
-        experiment_name = 'G1run_ppo'
+        experiment_name = 'G1walk_ppo'
         run_name = ''
         # Load and resume
         resume = False
@@ -306,14 +306,15 @@ class G1runCfgPPO(LeggedRobotCfgPPO):
         resume_path = None  # updated from load_run and chkpt
 
 
-class G1runCfgAMPPPO(G1runCfgPPO):
+class G1walkCfgAMPPPO(G1walkCfgPPO):
     runner_class_name = 'AMPOnPolicyRunner'
 
-    class runner(G1runCfgPPO.runner):
+    class runner(G1walkCfgPPO.runner):
         algorithm_class_name = 'AMPPPO'
-        experiment_name = 'G1run_amp'
+        experiment_name = 'G1walk_amp'
 
     class amp:
+        motion_files_display = []
         motion_files = []
         amp_reward_coef = 1.0
         amp_task_reward_lerp = 0.3

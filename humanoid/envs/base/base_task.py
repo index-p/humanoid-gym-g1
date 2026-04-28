@@ -85,6 +85,7 @@ class BaseTask():
             self.num_envs, device=self.device, dtype=torch.long)
         self.time_out_buf = torch.zeros(
             self.num_envs, device=self.device, dtype=torch.bool)
+        self.reset_env_ids = torch.empty(0, device=self.device, dtype=torch.long)
         if self.num_privileged_obs is not None:
             self.privileged_obs_buf = torch.zeros(
                 self.num_envs, self.num_privileged_obs, device=self.device, dtype=torch.float)
@@ -132,6 +133,12 @@ class BaseTask():
 
     def get_rma_observations(self):
         return self.rma_obs_buf
+
+    def get_amp_observations(self):
+        raise NotImplementedError("AMP observations are not implemented for this task")
+
+    def get_terminal_amp_observations(self, env_ids):
+        raise NotImplementedError("Terminal AMP observations are not implemented for this task")
 
     def reset_idx(self, env_ids):
         """Reset selected robots"""
