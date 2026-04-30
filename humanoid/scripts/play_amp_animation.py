@@ -4,7 +4,6 @@ import os
 import numpy as np
 
 from humanoid.amp_motion_utils import (
-    G1_DEFAULT_DOF_POS,
     build_amp_observations_from_motion,
     canonicalize_motion_dict,
     finite_difference,
@@ -30,7 +29,7 @@ def parse_args():
     parser.add_argument(
         "--absolute_dof_pos",
         action="store_true",
-        help="Store absolute dof positions in amp_obs instead of centering by the default pose.",
+        help="Deprecated compatibility flag. TienKung-style AMP export always uses absolute joint positions.",
     )
     return parser.parse_args()
 
@@ -49,10 +48,15 @@ def summarize_motion(motion, frame_idx):
 
     if motion["feet_pos_world"] is not None and motion["feet_pos_world"].size > 0:
         feet = motion["feet_pos_world"].reshape(num_frames, -1, 3)
-        print(f"num_end_effectors: {feet.shape[1]}")
+        print(f"num_foot_effectors: {feet.shape[1]}")
         print(f"feet_height_range: [{feet[:, :, 2].min():.4f}, {feet[:, :, 2].max():.4f}]")
     else:
-        print("num_end_effectors: 0")
+        print("num_foot_effectors: 0")
+    if motion["hand_pos_world"] is not None and motion["hand_pos_world"].size > 0:
+        hands = motion["hand_pos_world"].reshape(num_frames, -1, 3)
+        print(f"num_hand_effectors: {hands.shape[1]}")
+    else:
+        print("num_hand_effectors: 0")
 
     print(f"preview_frame: {frame_idx}")
     print(f"root_pos[{frame_idx}]: {motion['root_pos'][frame_idx]}")
@@ -72,15 +76,20 @@ def export_amp_expert(motion, save_path, absolute_dof_pos=False):
         raise ValueError(
             "Cannot export AMP expert data because the motion does not contain feet/end-effector positions."
         )
+    hand_pos_world = motion["hand_pos_world"]
+    if hand_pos_world is None or hand_pos_world.size == 0:
+        raise ValueError(
+            "Cannot export AMP expert data because the motion does not contain hand end-effector positions."
+        )
 
     amp_obs = build_amp_observations_from_motion(
         motion["dof_pos"],
         dof_vel,
         feet_pos_world,
+        hand_pos_world,
         motion["root_pos"],
         motion["root_quat"],
-        default_dof_pos=G1_DEFAULT_DOF_POS,
-        subtract_default=not absolute_dof_pos,
+        joint_names=motion["joint_names"],
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
@@ -89,6 +98,9 @@ def export_amp_expert(motion, save_path, absolute_dof_pos=False):
         amp_obs=amp_obs,
         dof_pos=motion["dof_pos"],
         dof_vel=dof_vel,
+        root_pos=motion["root_pos"],
+        root_quat=motion["root_quat"],
+        hand_pos_world=hand_pos_world,
         feet_pos_world=feet_pos_world,
         joint_names=np.asarray(motion["joint_names"], dtype="<U64"),
         fps=np.asarray(motion["fps"], dtype=np.float32),

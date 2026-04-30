@@ -39,6 +39,7 @@ def main():
         dof_vel=motion["dof_vel"] if motion["dof_vel"] is not None else np.empty((0,), dtype=np.float32),
         root_pos=motion["root_pos"],
         root_quat=motion["root_quat"],
+        hand_pos_world=motion["hand_pos_world"] if motion["hand_pos_world"] is not None else np.empty((0,), dtype=np.float32),
         feet_pos_world=motion["feet_pos_world"] if motion["feet_pos_world"] is not None else np.empty((0,), dtype=np.float32),
         joint_names=np.asarray(motion["joint_names"], dtype="<U64"),
         fps=np.asarray(motion["fps"], dtype=np.float32),
@@ -47,8 +48,9 @@ def main():
     print(f"Saved normalized visualization motion to {args.output}")
     print(
         f"frames={motion['dof_pos'].shape[0]} dof={motion['dof_pos'].shape[1]} "
-        f"fps={motion['fps']:.3f} feet_features="
-        f"{0 if motion['feet_pos_world'] is None else motion['feet_pos_world'].shape[1]}"
+        f"fps={motion['fps']:.3f} hand_features="
+        f"{0 if motion['hand_pos_world'] is None else motion['hand_pos_world'].shape[1]} "
+        f"feet_features={0 if motion['feet_pos_world'] is None else motion['feet_pos_world'].shape[1]}"
     )
 
 

@@ -3,7 +3,7 @@ import pickle
 import importlib
 
 
-G1_DEFAULT_JOINT_NAMES = [
+G1_12DOF_JOINT_NAMES = [
     "left_hip_yaw_joint",
     "left_hip_roll_joint",
     "left_hip_pitch_joint",
@@ -18,9 +18,86 @@ G1_DEFAULT_JOINT_NAMES = [
     "right_ankle_roll_joint",
 ]
 
-G1_DEFAULT_DOF_POS = np.asarray(
+G1_12DOF_DEFAULT_DOF_POS = np.asarray(
     [0.0, 0.0, -0.1, 0.3, -0.2, 0.0, 0.0, 0.0, -0.1, 0.3, -0.2, 0.0],
     dtype=np.float32,
+)
+
+G1_20DOF_JOINT_NAMES = G1_12DOF_JOINT_NAMES + [
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "left_elbow_joint",
+    "right_shoulder_pitch_joint",
+    "right_shoulder_roll_joint",
+    "right_shoulder_yaw_joint",
+    "right_elbow_joint",
+]
+
+G1_20DOF_DEFAULT_DOF_POS = np.asarray(
+    [0.0, 0.0, -0.1, 0.3, -0.2, 0.0, 0.0, 0.0, -0.1, 0.3, -0.2, 0.0, 0.0, 0.0, 0.0, 0.3, 0.0, 0.0, 0.0, 0.3],
+    dtype=np.float32,
+)
+
+G1_DEFAULT_JOINT_NAMES = G1_20DOF_JOINT_NAMES
+G1_DEFAULT_DOF_POS = G1_20DOF_DEFAULT_DOF_POS
+
+G1_TIENKUNG_RIGHT_ARM_JOINT_NAMES = [
+    "right_shoulder_pitch_joint",
+    "right_shoulder_roll_joint",
+    "right_shoulder_yaw_joint",
+    "right_elbow_joint",
+]
+
+G1_TIENKUNG_LEFT_ARM_JOINT_NAMES = [
+    "left_shoulder_pitch_joint",
+    "left_shoulder_roll_joint",
+    "left_shoulder_yaw_joint",
+    "left_elbow_joint",
+]
+
+G1_TIENKUNG_RIGHT_LEG_JOINT_NAMES = [
+    "right_hip_yaw_joint",
+    "right_hip_roll_joint",
+    "right_hip_pitch_joint",
+    "right_knee_joint",
+    "right_ankle_pitch_joint",
+    "right_ankle_roll_joint",
+]
+
+G1_TIENKUNG_LEFT_LEG_JOINT_NAMES = [
+    "left_hip_yaw_joint",
+    "left_hip_roll_joint",
+    "left_hip_pitch_joint",
+    "left_knee_joint",
+    "left_ankle_pitch_joint",
+    "left_ankle_roll_joint",
+]
+
+G1_LEFT_HAND_LINK_CANDIDATES = (
+    "left_wrist_roll_rubber_hand",
+    "left_rubber_hand",
+    "left_wrist_yaw_link",
+    "left_wrist_roll_link",
+    "left_elbow_link",
+)
+
+G1_RIGHT_HAND_LINK_CANDIDATES = (
+    "right_wrist_roll_rubber_hand",
+    "right_rubber_hand",
+    "right_wrist_yaw_link",
+    "right_wrist_roll_link",
+    "right_elbow_link",
+)
+
+G1_LEFT_FOOT_LINK_CANDIDATES = (
+    "left_ankle_roll_link",
+    "left_toe_link",
+)
+
+G1_RIGHT_FOOT_LINK_CANDIDATES = (
+    "right_ankle_roll_link",
+    "right_toe_link",
 )
 
 G1_29DOF_JOINT_NAMES = [
@@ -154,6 +231,64 @@ def _normalize_joint_names(joint_names):
     return normalized
 
 
+def _reshape_world_points(values, num_frames):
+    if values is None:
+        return None
+    values = _to_numpy_array(values).reshape(num_frames, -1)
+    if values.size == 0:
+        return None
+    return values
+
+
+def _find_first_present_index(link_body_list, candidate_names):
+    for candidate_name in candidate_names:
+        if candidate_name in link_body_list:
+            return link_body_list.index(candidate_name)
+    return None
+
+
+def _extract_world_points_from_local_bodies(
+    local_body_pos,
+    link_body_list,
+    root_pos,
+    root_quat,
+    candidate_groups,
+):
+    indices = []
+    for candidate_names in candidate_groups:
+        index = _find_first_present_index(link_body_list, candidate_names)
+        if index is None:
+            return None
+        indices.append(index)
+
+    local_points = local_body_pos[:, indices, :]
+    repeated_quat = np.repeat(root_quat[:, None, :], len(indices), axis=1)
+    world_points = quat_rotate(repeated_quat, local_points) + root_pos[:, None, :]
+    return world_points.reshape(local_body_pos.shape[0], -1)
+
+
+def _resolve_joint_names_for_amp(joint_names, dof_values):
+    resolved_joint_names = _normalize_joint_names(joint_names)
+    if resolved_joint_names is not None:
+        return resolved_joint_names
+    resolved_joint_names = _infer_g1_joint_names(dof_values)
+    if resolved_joint_names is None:
+        raise ValueError(
+            "Unable to infer joint names for AMP observation construction. "
+            "Please provide G1 joint names in the motion data."
+        )
+    return resolved_joint_names
+
+
+def _select_joint_block(values, joint_names, target_joint_names):
+    index_map = {name: idx for idx, name in enumerate(joint_names)}
+    missing = [name for name in target_joint_names if name not in index_map]
+    if missing:
+        raise ValueError(f"Motion data is missing required joints for AMP observations: {missing}")
+    indices = [index_map[name] for name in target_joint_names]
+    return values[:, indices]
+
+
 def reorder_dof_by_joint_names(dof_pos, joint_names, target_joint_names):
     joint_names = _normalize_joint_names(joint_names)
     if joint_names is None:
@@ -169,8 +304,10 @@ def reorder_dof_by_joint_names(dof_pos, joint_names, target_joint_names):
 def _infer_g1_joint_names(dof_pos):
     if dof_pos.shape[1] == len(G1_29DOF_JOINT_NAMES):
         return list(G1_29DOF_JOINT_NAMES)
-    if dof_pos.shape[1] == len(G1_DEFAULT_JOINT_NAMES):
-        return list(G1_DEFAULT_JOINT_NAMES)
+    if dof_pos.shape[1] == len(G1_20DOF_JOINT_NAMES):
+        return list(G1_20DOF_JOINT_NAMES)
+    if dof_pos.shape[1] == len(G1_12DOF_JOINT_NAMES):
+        return list(G1_12DOF_JOINT_NAMES)
     return None
 
 
@@ -221,22 +358,33 @@ def canonicalize_motion_dict(raw_data, target_joint_names=None, fps=None, dt=Non
         raw_data,
         ("feet_pos_world", "end_effector_pos_world", "feet_pos", "end_effector_pos", "ee_pos"),
     )
-    if feet_pos_world is not None:
-        feet_pos_world = _to_numpy_array(feet_pos_world).reshape(dof_pos.shape[0], -1)
-        if feet_pos_world.size == 0:
-            feet_pos_world = None
-    if feet_pos_world is None:
-        local_body_pos = _lookup_first(raw_data, ("local_body_pos",))
-        link_body_list = _normalize_joint_names(_lookup_first(raw_data, ("link_body_list", "body_names", "link_names")))
-        if local_body_pos is not None and link_body_list is not None:
-            local_body_pos = _to_numpy_array(local_body_pos).reshape(dof_pos.shape[0], -1, 3)
-            toe_names = ("left_toe_link", "right_toe_link")
-            if all(name in link_body_list for name in toe_names):
-                toe_indices = [link_body_list.index(name) for name in toe_names]
-                toe_local = local_body_pos[:, toe_indices, :]
-                repeated_quat = np.repeat(root_quat[:, None, :], len(toe_indices), axis=1)
-                toe_world = quat_rotate(repeated_quat, toe_local) + root_pos[:, None, :]
-                feet_pos_world = toe_world.reshape(dof_pos.shape[0], -1)
+    feet_pos_world = _reshape_world_points(feet_pos_world, dof_pos.shape[0])
+    hand_pos_world = _lookup_first(
+        raw_data,
+        ("hand_pos_world", "hands_pos_world"),
+    )
+    hand_pos_world = _reshape_world_points(hand_pos_world, dof_pos.shape[0])
+
+    local_body_pos = _lookup_first(raw_data, ("local_body_pos",))
+    link_body_list = _normalize_joint_names(_lookup_first(raw_data, ("link_body_list", "body_names", "link_names")))
+    if local_body_pos is not None and link_body_list is not None:
+        local_body_pos = _to_numpy_array(local_body_pos).reshape(dof_pos.shape[0], -1, 3)
+        if feet_pos_world is None:
+            feet_pos_world = _extract_world_points_from_local_bodies(
+                local_body_pos,
+                link_body_list,
+                root_pos,
+                root_quat,
+                (G1_LEFT_FOOT_LINK_CANDIDATES, G1_RIGHT_FOOT_LINK_CANDIDATES),
+            )
+        if hand_pos_world is None:
+            hand_pos_world = _extract_world_points_from_local_bodies(
+                local_body_pos,
+                link_body_list,
+                root_pos,
+                root_quat,
+                (G1_LEFT_HAND_LINK_CANDIDATES, G1_RIGHT_HAND_LINK_CANDIDATES),
+            )
 
     resolved_dt = resolve_dt(fps=fps or _lookup_first(raw_data, ("fps",)), dt=dt or _lookup_first(raw_data, ("dt",)))
     resolved_fps = resolve_fps(fps=fps or _lookup_first(raw_data, ("fps",)), dt=resolved_dt)
@@ -247,6 +395,7 @@ def canonicalize_motion_dict(raw_data, target_joint_names=None, fps=None, dt=Non
         "root_pos": root_pos,
         "root_quat": root_quat,
         "feet_pos_world": feet_pos_world,
+        "hand_pos_world": hand_pos_world,
         "joint_names": joint_names,
         "dt": resolved_dt,
         "fps": resolved_fps,
@@ -315,8 +464,10 @@ def build_amp_observations_from_motion(
     dof_pos,
     dof_vel,
     feet_pos_world,
+    hand_pos_world,
     root_pos,
     root_quat,
+    joint_names=None,
     default_dof_pos=None,
     subtract_default=True,
 ):
@@ -324,13 +475,35 @@ def build_amp_observations_from_motion(
     dof_vel = _to_numpy_array(dof_vel)
     if feet_pos_world is None:
         raise ValueError("feet_pos_world or end_effector_pos is required to build AMP observations")
+    if hand_pos_world is None:
+        raise ValueError("hand_pos_world is required to build TienKung-style AMP observations")
 
-    if subtract_default:
-        if default_dof_pos is None:
-            default_dof_pos = G1_DEFAULT_DOF_POS
-        dof_pos_features = dof_pos - _to_numpy_array(default_dof_pos)[None, :]
-    else:
-        dof_pos_features = dof_pos
+    joint_names = _resolve_joint_names_for_amp(joint_names, dof_pos)
+    right_arm_dof_pos = _select_joint_block(dof_pos, joint_names, G1_TIENKUNG_RIGHT_ARM_JOINT_NAMES)
+    left_arm_dof_pos = _select_joint_block(dof_pos, joint_names, G1_TIENKUNG_LEFT_ARM_JOINT_NAMES)
+    right_leg_dof_pos = _select_joint_block(dof_pos, joint_names, G1_TIENKUNG_RIGHT_LEG_JOINT_NAMES)
+    left_leg_dof_pos = _select_joint_block(dof_pos, joint_names, G1_TIENKUNG_LEFT_LEG_JOINT_NAMES)
+    right_arm_dof_vel = _select_joint_block(dof_vel, joint_names, G1_TIENKUNG_RIGHT_ARM_JOINT_NAMES)
+    left_arm_dof_vel = _select_joint_block(dof_vel, joint_names, G1_TIENKUNG_LEFT_ARM_JOINT_NAMES)
+    right_leg_dof_vel = _select_joint_block(dof_vel, joint_names, G1_TIENKUNG_RIGHT_LEG_JOINT_NAMES)
+    left_leg_dof_vel = _select_joint_block(dof_vel, joint_names, G1_TIENKUNG_LEFT_LEG_JOINT_NAMES)
 
+    hand_pos_local = world_to_local_points(root_pos, root_quat, hand_pos_world)
     feet_pos_local = world_to_local_points(root_pos, root_quat, feet_pos_world)
-    return np.concatenate((dof_pos_features, dof_vel, feet_pos_local), axis=-1).astype(np.float32)
+    return np.concatenate(
+        (
+            right_arm_dof_pos,
+            left_arm_dof_pos,
+            right_leg_dof_pos,
+            left_leg_dof_pos,
+            right_arm_dof_vel,
+            left_arm_dof_vel,
+            right_leg_dof_vel,
+            left_leg_dof_vel,
+            hand_pos_local[:, 0:3],
+            hand_pos_local[:, 3:6],
+            feet_pos_local[:, 0:3],
+            feet_pos_local[:, 3:6],
+        ),
+        axis=-1,
+    ).astype(np.float32)

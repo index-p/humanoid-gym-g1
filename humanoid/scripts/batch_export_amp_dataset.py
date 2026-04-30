@@ -5,7 +5,6 @@ import os
 import numpy as np
 
 from humanoid.amp_motion_utils import (
-    G1_DEFAULT_DOF_POS,
     G1_DEFAULT_JOINT_NAMES,
     build_amp_observations_from_motion,
     canonicalize_motion_dict,
@@ -36,7 +35,7 @@ def parse_args():
     parser.add_argument(
         "--absolute_dof_pos",
         action="store_true",
-        help="Store absolute dof positions in amp_obs instead of centering by the default pose.",
+        help="Deprecated compatibility flag. TienKung-style AMP export always uses absolute joint positions.",
     )
     parser.add_argument(
         "--skip_existing",
@@ -60,6 +59,7 @@ def save_visualization_motion(motion, save_path):
         dof_vel=motion["dof_vel"] if motion["dof_vel"] is not None else np.empty((0,), dtype=np.float32),
         root_pos=motion["root_pos"],
         root_quat=motion["root_quat"],
+        hand_pos_world=motion["hand_pos_world"] if motion["hand_pos_world"] is not None else np.empty((0,), dtype=np.float32),
         feet_pos_world=motion["feet_pos_world"] if motion["feet_pos_world"] is not None else np.empty((0,), dtype=np.float32),
         joint_names=np.asarray(motion["joint_names"], dtype="<U64"),
         fps=np.asarray(motion["fps"], dtype=np.float32),
@@ -75,15 +75,18 @@ def save_amp_expert_motion(motion, save_path, absolute_dof_pos=False):
     feet_pos_world = motion["feet_pos_world"]
     if feet_pos_world is None or feet_pos_world.size == 0:
         raise ValueError("Motion does not contain feet/end-effector positions required for AMP export")
+    hand_pos_world = motion["hand_pos_world"]
+    if hand_pos_world is None or hand_pos_world.size == 0:
+        raise ValueError("Motion does not contain hand end-effector positions required for AMP export")
 
     amp_obs = build_amp_observations_from_motion(
         motion["dof_pos"],
         dof_vel,
         feet_pos_world,
+        hand_pos_world,
         motion["root_pos"],
         motion["root_quat"],
-        default_dof_pos=G1_DEFAULT_DOF_POS,
-        subtract_default=not absolute_dof_pos,
+        joint_names=motion["joint_names"],
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(save_path)), exist_ok=True)
@@ -92,6 +95,9 @@ def save_amp_expert_motion(motion, save_path, absolute_dof_pos=False):
         amp_obs=amp_obs,
         dof_pos=motion["dof_pos"],
         dof_vel=dof_vel,
+        root_pos=motion["root_pos"],
+        root_quat=motion["root_quat"],
+        hand_pos_world=hand_pos_world,
         feet_pos_world=feet_pos_world,
         joint_names=np.asarray(motion["joint_names"], dtype="<U64"),
         fps=np.asarray(motion["fps"], dtype=np.float32),

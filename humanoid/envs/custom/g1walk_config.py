@@ -39,11 +39,11 @@ class G1walkCfg(LeggedRobotCfg):
         # change the observation dim
         frame_stack = 15
         c_frame_stack = 3
-        num_single_obs = 51
+        num_single_obs = 75
         num_observations = int(frame_stack * num_single_obs)
-        single_num_privileged_obs = 65
+        single_num_privileged_obs = 89
         num_privileged_obs = int(c_frame_stack * single_num_privileged_obs)
-        num_actions = 12
+        num_actions = 20
         num_envs = 4096
         episode_length_s = 24     # episode length in seconds
         use_ref_actions = False   # speed up training by using reference actions
@@ -55,7 +55,7 @@ class G1walkCfg(LeggedRobotCfg):
         torque_limit = 0.85
 
     class asset(LeggedRobotCfg.asset):
-        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/G1/urdf/g1_12dof.urdf'
+        file = '{LEGGED_GYM_ROOT_DIR}/resources/robots/g1/urdf/g1_20dof.urdf'
 
         name = "g1"
         foot_name = "ankle_roll"
@@ -125,8 +125,15 @@ class G1walkCfg(LeggedRobotCfg):
             'right_hip_pitch_joint' : -0.1,                                       
             'right_knee_joint' : 0.3,                                             
             'right_ankle_pitch_joint': -0.2,                              
-            'right_ankle_roll_joint' : 0,       
-            # 'torso_joint' : 0.
+            'right_ankle_roll_joint' : 0,
+            'left_shoulder_pitch_joint': 0.0,
+            'left_shoulder_roll_joint': 0.0,
+            'left_shoulder_yaw_joint': 0.0,
+            'left_elbow_joint': 0.3,
+            'right_shoulder_pitch_joint': 0.0,
+            'right_shoulder_roll_joint': 0.0,
+            'right_shoulder_yaw_joint': 0.0,
+            'right_elbow_joint': 0.3,
         }
 
     class control(LeggedRobotCfg.control):
@@ -140,12 +147,20 @@ class G1walkCfg(LeggedRobotCfg):
                      'hip_yaw': 100,
                      'knee': 150,
                      'ankle': 40,
+                     'shoulder_pitch': 40,
+                     'shoulder_roll': 40,
+                     'shoulder_yaw': 40,
+                     'elbow': 40,
                      }  # [N*m/rad]
         damping = {  'hip_roll': 2,
                      'hip_pitch': 2,
                      'hip_yaw': 2,
                      'knee': 4,
                      'ankle': 2,
+                     'shoulder_pitch': 2,
+                     'shoulder_roll': 2,
+                     'shoulder_yaw': 2,
+                     'elbow': 2,
                      }
         # action scale: target angle = actionScale * action + defaultAngle
         action_scale = 0.25
@@ -231,7 +246,7 @@ class G1walkCfg(LeggedRobotCfg):
 
         class scales:
             feet_clearance = 1.
-            feet_contact_number = 0.6
+            feet_contact_number = 0.0
             # gait
             feet_air_time = 1.
             gait_feet_force_periodic = 1.0
@@ -314,12 +329,19 @@ class G1walkCfgAMPPPO(G1walkCfgPPO):
         experiment_name = 'G1walk_amp'
 
     class amp:
-        motion_files_display = []
-        motion_files = []
-        amp_reward_coef = 1.0
+        motion_files_display = [
+            "{LEGGED_GYM_ROOT_DIR}/data/motion_visualization/*/*.npz",
+        ]
+        motion_files = [
+            "{LEGGED_GYM_ROOT_DIR}/data/motion_amp_expert/*/*.npz",
+        ]
+        amp_reward_coef = 0.3
         amp_task_reward_lerp = 0.3
         amp_discr_hidden_dims = [512, 256]
         amp_discr_learning_rate = 1e-4
         amp_discr_batch_size = 4096
         amp_replay_buffer_size = 200000
         amp_grad_penalty_coef = 10.0
+        amp_num_preload_transitions = 200000
+        amp_normalize_obs = True
+        amp_norm_epsilon = 1e-5

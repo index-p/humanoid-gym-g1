@@ -8,6 +8,7 @@ from humanoid.algo.ppo.ppo import PPO
 from .amp_discriminator import AMPDiscriminator
 from .amp_replay_buffer import AMPReplayBuffer
 from .amp_rollout_storage import AMPRolloutStorage
+from .amp_normalizer import AMPRunningNormalizer
 
 
 class AMPPPO(PPO):
@@ -22,6 +23,8 @@ class AMPPPO(PPO):
         amp_discr_batch_size=4096,
         amp_replay_buffer_size=200000,
         amp_grad_penalty_coef=10.0,
+        amp_normalize_obs=True,
+        amp_norm_epsilon=1e-5,
         device="cpu",
         **kwargs,
     ):
@@ -31,6 +34,7 @@ class AMPPPO(PPO):
         self.amp_task_reward_lerp = amp_task_reward_lerp
         self.amp_discr_batch_size = amp_discr_batch_size
         self.amp_grad_penalty_coef = amp_grad_penalty_coef
+        self.amp_normalize_obs = amp_normalize_obs
         self.discriminator = AMPDiscriminator(
             amp_obs_dim, hidden_dims=amp_discr_hidden_dims
         ).to(self.device)
@@ -39,6 +43,11 @@ class AMPPPO(PPO):
         )
         self.replay_buffer = AMPReplayBuffer(
             amp_replay_buffer_size, amp_obs_dim, device=self.device
+        )
+        self.amp_normalizer = (
+            AMPRunningNormalizer(amp_obs_dim, epsilon=amp_norm_epsilon, device=self.device)
+            if amp_normalize_obs
+            else None
         )
         self.motion_loader = None
         self.transition = AMPRolloutStorage.Transition()
@@ -51,6 +60,9 @@ class AMPPPO(PPO):
 
     def set_motion_loader(self, motion_loader):
         self.motion_loader = motion_loader
+        if self.amp_normalizer is not None and motion_loader is not None and len(motion_loader) > 0:
+            self.amp_normalizer.update(motion_loader.amp_obs)
+            self.amp_normalizer.update(motion_loader.next_amp_obs)
 
     def init_storage(
         self,
@@ -72,12 +84,21 @@ class AMPPPO(PPO):
 
     def predict_amp_reward(self, amp_obs, next_amp_obs):
         with torch.inference_mode():
+            amp_obs, next_amp_obs = self._normalize_amp_pair(amp_obs, next_amp_obs)
             logits = self.discriminator(amp_obs, next_amp_obs)
             prob = torch.sigmoid(logits)
             reward = -torch.log(torch.clamp(1.0 - prob, min=1e-4))
         return reward.squeeze(-1)
 
+    def _normalize_amp_pair(self, amp_obs, next_amp_obs):
+        if self.amp_normalizer is None:
+            return amp_obs, next_amp_obs
+        return self.amp_normalizer.normalize(amp_obs), self.amp_normalizer.normalize(next_amp_obs)
+
     def process_env_step(self, rewards, dones, infos, amp_obs, next_amp_obs):
+        if self.amp_normalizer is not None:
+            self.amp_normalizer.update(amp_obs)
+            self.amp_normalizer.update(next_amp_obs)
         task_rewards = rewards.clone()
         amp_rewards = self.predict_amp_reward(amp_obs, next_amp_obs)
         mixed_rewards = (1.0 - self.amp_task_reward_lerp) * task_rewards + (
@@ -109,6 +130,8 @@ class AMPPPO(PPO):
         batch_size = min(self.amp_discr_batch_size, len(self.replay_buffer), len(self.motion_loader))
         policy_amp_obs, policy_next_amp_obs = self.replay_buffer.sample(batch_size)
         expert_amp_obs, expert_next_amp_obs = self.motion_loader.sample(batch_size)
+        policy_amp_obs, policy_next_amp_obs = self._normalize_amp_pair(policy_amp_obs, policy_next_amp_obs)
+        expert_amp_obs, expert_next_amp_obs = self._normalize_amp_pair(expert_amp_obs, expert_next_amp_obs)
 
         policy_logits = self.discriminator(policy_amp_obs, policy_next_amp_obs)
         expert_logits = self.discriminator(expert_amp_obs, expert_next_amp_obs)

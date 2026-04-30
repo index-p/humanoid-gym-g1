@@ -37,6 +37,12 @@ import torch
 from humanoid.envs import LeggedRobot
 
 from humanoid.utils.terrain import  HumanoidTerrain
+from humanoid.amp_motion_utils import (
+    G1_TIENKUNG_LEFT_ARM_JOINT_NAMES,
+    G1_TIENKUNG_LEFT_LEG_JOINT_NAMES,
+    G1_TIENKUNG_RIGHT_ARM_JOINT_NAMES,
+    G1_TIENKUNG_RIGHT_LEG_JOINT_NAMES,
+)
 
 
 class G1walkFreeEnv(LeggedRobot):
@@ -74,6 +80,7 @@ class G1walkFreeEnv(LeggedRobot):
         reset_idx(env_ids): Resets the environment for the specified environment IDs.
     '''
     def __init__(self, cfg: LeggedRobotCfg, sim_params, physics_engine, sim_device, headless):
+        self.command_obs_dim = 9
         super().__init__(cfg, sim_params, physics_engine, sim_device, headless)
         self.left_hip_pitch_idx = self.dof_names.index("left_hip_pitch_joint")
         self.left_hip_roll_idx = self.dof_names.index("left_hip_roll_joint")
@@ -95,10 +102,66 @@ class G1walkFreeEnv(LeggedRobot):
         self.ref_action = torch.zeros((self.num_envs, self.num_actions), device=self.device)
         self.last_feet_z = 0.05
         self.feet_height = torch.zeros((self.num_envs, 2), device=self.device)
+        self.feet_contact_time = torch.zeros((self.num_envs, 2), device=self.device)
         self._terminal_amp_obs = torch.empty(0, device=self.device)
         self.reset_idx(torch.tensor(range(self.num_envs), device=self.device))
         self.compute_observations()
+        self._init_amp_indices()
         self.num_amp_obs = self.get_amp_observations().shape[-1]
+
+    def _build_amp_joint_index_tensor(self, joint_names):
+        return torch.tensor(
+            [self.dof_names.index(joint_name) for joint_name in joint_names],
+            dtype=torch.long,
+            device=self.device,
+        )
+
+    def _find_amp_body_index(self, body_name_candidates):
+        for body_name in body_name_candidates:
+            body_index = self.gym.find_actor_rigid_body_handle(
+                self.envs[0], self.actor_handles[0], body_name
+            )
+            if body_index != -1:
+                return int(body_index)
+        raise ValueError(
+            f"Unable to find AMP body handle for any of {body_name_candidates} in the G1 asset."
+        )
+
+    def _init_amp_indices(self):
+        self.right_arm_amp_indices = self._build_amp_joint_index_tensor(
+            G1_TIENKUNG_RIGHT_ARM_JOINT_NAMES
+        )
+        self.left_arm_amp_indices = self._build_amp_joint_index_tensor(
+            G1_TIENKUNG_LEFT_ARM_JOINT_NAMES
+        )
+        self.right_leg_amp_indices = self._build_amp_joint_index_tensor(
+            G1_TIENKUNG_RIGHT_LEG_JOINT_NAMES
+        )
+        self.left_leg_amp_indices = self._build_amp_joint_index_tensor(
+            G1_TIENKUNG_LEFT_LEG_JOINT_NAMES
+        )
+        self.left_hand_amp_index = self._find_amp_body_index(
+            ("left_wrist_roll_rubber_hand", "left_rubber_hand", "left_elbow_link")
+        )
+        self.right_hand_amp_index = self._find_amp_body_index(
+            ("right_wrist_roll_rubber_hand", "right_rubber_hand", "right_elbow_link")
+        )
+        self.left_foot_amp_index = self._find_amp_body_index(
+            ("left_ankle_roll_link", "left_toe_link")
+        )
+        self.right_foot_amp_index = self._find_amp_body_index(
+            ("right_ankle_roll_link", "right_toe_link")
+        )
+        self.hand_amp_indices = torch.tensor(
+            [self.left_hand_amp_index, self.right_hand_amp_index],
+            dtype=torch.long,
+            device=self.device,
+        )
+        self.foot_amp_indices = torch.tensor(
+            [self.left_foot_amp_index, self.right_foot_amp_index],
+            dtype=torch.long,
+            device=self.device,
+        )
 
     def _push_robots(self):
         """ Random pushes the robots. Emulates an impulse by setting a randomized base velocity. 
@@ -185,12 +248,18 @@ class G1walkFreeEnv(LeggedRobot):
             self.cfg.env.num_single_obs, device=self.device)
         self.add_noise = self.cfg.noise.add_noise
         noise_scales = self.cfg.noise.noise_scales
-        noise_vec[0: 9] = 0.  # gait phase and commands
-        noise_vec[9: 21] = noise_scales.dof_pos * self.obs_scales.dof_pos
-        noise_vec[21: 33] = noise_scales.dof_vel * self.obs_scales.dof_vel
-        noise_vec[33: 45] = 0.  # previous actions
-        noise_vec[45: 48] = noise_scales.ang_vel * self.obs_scales.ang_vel   # ang vel
-        noise_vec[48: 51] = noise_scales.quat * self.obs_scales.quat         # euler x,y
+        cursor = 0
+        noise_vec[cursor: cursor + self.command_obs_dim] = 0.
+        cursor += self.command_obs_dim
+        noise_vec[cursor: cursor + self.num_actions] = noise_scales.dof_pos * self.obs_scales.dof_pos
+        cursor += self.num_actions
+        noise_vec[cursor: cursor + self.num_actions] = noise_scales.dof_vel * self.obs_scales.dof_vel
+        cursor += self.num_actions
+        noise_vec[cursor: cursor + self.num_actions] = 0.
+        cursor += self.num_actions
+        noise_vec[cursor: cursor + 3] = noise_scales.ang_vel * self.obs_scales.ang_vel
+        cursor += 3
+        noise_vec[cursor: cursor + 3] = noise_scales.quat * self.obs_scales.quat
         return noise_vec
 
 
@@ -223,9 +292,9 @@ class G1walkFreeEnv(LeggedRobot):
         self.privileged_obs_buf = torch.cat((
             self.command_input,  # 4 + 2 + 3
             (self.dof_pos - self.default_joint_pd_target) * \
-            self.obs_scales.dof_pos,  # 12
-            self.dof_vel * self.obs_scales.dof_vel,  # 12
-            self.actions,  # 12
+            self.obs_scales.dof_pos,
+            self.dof_vel * self.obs_scales.dof_vel,
+            self.actions,
             self.base_lin_vel * self.obs_scales.lin_vel,  # 3
             self.base_ang_vel * self.obs_scales.ang_vel,  # 3
             self.base_euler_xyz * self.obs_scales.quat,  # 3
@@ -239,9 +308,9 @@ class G1walkFreeEnv(LeggedRobot):
 
         obs_buf = torch.cat((
             self.command_input,  # 9 = 4D(sin cos) + 2D(swing ratio) + 3D commands
-            q,    # 12D
-            dq,  # 12D
-            self.actions,   # 12D
+            q,
+            dq,
+            self.actions,
             self.base_ang_vel * self.obs_scales.ang_vel,  # 3
             self.base_euler_xyz * self.obs_scales.quat,  # 3
         ), dim=-1)
@@ -270,6 +339,19 @@ class G1walkFreeEnv(LeggedRobot):
             self.obs_history[i][env_ids] *= 0
         for i in range(self.critic_history.maxlen):
             self.critic_history[i][env_ids] *= 0
+        self.feet_height[env_ids] = 0.0
+        self.feet_contact_time[env_ids] = 0.0
+
+    def _get_yaw_frame_lin_vel(self):
+        yaw_quat = self.base_quat.clone()
+        yaw_quat[:, :2] = 0.0
+        yaw_quat = normalize(yaw_quat)
+        return quat_rotate_inverse(yaw_quat, self.root_states[:, 7:10])
+
+    def _has_motion_command(self):
+        return (
+            torch.norm(self.commands[:, :2], dim=1) + torch.abs(self.commands[:, 2])
+        ) > 0.1
 
     def _cache_terminal_amp_observations(self, env_ids):
         if len(env_ids) == 0:
@@ -284,25 +366,34 @@ class G1walkFreeEnv(LeggedRobot):
             root_pos = self.root_states[:, :3]
             base_quat = self.base_quat
             rigid_state = self.rigid_state
-            default_dof_pos = self.default_dof_pos.expand(self.num_envs, -1)
         else:
             dof_pos = self.dof_pos[env_ids]
             dof_vel = self.dof_vel[env_ids]
             root_pos = self.root_states[env_ids, :3]
             base_quat = self.base_quat[env_ids]
             rigid_state = self.rigid_state[env_ids]
-            default_dof_pos = self.default_dof_pos.expand(dof_pos.shape[0], -1)
-
-        foot_world = rigid_state[:, self.feet_indices, :3] - root_pos.unsqueeze(1)
-        foot_quat = base_quat.repeat_interleave(self.feet_indices.shape[0], dim=0)
+        hand_world = rigid_state[:, self.hand_amp_indices, :3] - root_pos.unsqueeze(1)
+        hand_quat = base_quat.repeat_interleave(self.hand_amp_indices.shape[0], dim=0)
+        hand_local = quat_rotate_inverse(
+            hand_quat, hand_world.reshape(-1, 3)
+        ).reshape(dof_pos.shape[0], -1)
+        foot_world = rigid_state[:, self.foot_amp_indices, :3] - root_pos.unsqueeze(1)
+        foot_quat = base_quat.repeat_interleave(self.foot_amp_indices.shape[0], dim=0)
         foot_local = quat_rotate_inverse(
             foot_quat, foot_world.reshape(-1, 3)
         ).reshape(dof_pos.shape[0], -1)
 
         return torch.cat(
             (
-                dof_pos - default_dof_pos,
-                dof_vel,
+                dof_pos[:, self.right_arm_amp_indices],
+                dof_pos[:, self.left_arm_amp_indices],
+                dof_pos[:, self.right_leg_amp_indices],
+                dof_pos[:, self.left_leg_amp_indices],
+                dof_vel[:, self.right_arm_amp_indices],
+                dof_vel[:, self.left_arm_amp_indices],
+                dof_vel[:, self.right_leg_amp_indices],
+                dof_vel[:, self.left_leg_amp_indices],
+                hand_local,
                 foot_local,
             ),
             dim=-1,
@@ -351,11 +442,11 @@ class G1walkFreeEnv(LeggedRobot):
         and the speed of the feet. A contact threshold is used to determine if the foot is in contact 
         with the ground. The speed of the foot is calculated and scaled by the contact condition.
         """
-        contact = self.contact_forces[:, self.feet_indices, 2] > 5.
+        contact = self.contact_forces[:, self.feet_indices, 2] > 1.0
         foot_speed_norm = torch.norm(self.rigid_state[:, self.feet_indices, 7:9], dim=2)
-        rew = torch.sqrt(foot_speed_norm)
+        rew = foot_speed_norm
         rew *= contact
-        return torch.sum(rew, dim=1)    
+        return torch.sum(rew, dim=1)
 
     def _reward_feet_air_time(self):
         """
@@ -363,22 +454,28 @@ class G1walkFreeEnv(LeggedRobot):
         checking the first contact with the ground after being in the air. The air time is
         limited to a maximum value for reward calculation.
         """
-        contact = self.contact_forces[:, self.feet_indices, 2] > 5.
-        stance_mask = self._get_gait_phase()
-        self.contact_filt = torch.logical_or(torch.logical_or(contact, stance_mask), self.last_contacts)
-        self.last_contacts = contact
-        first_contact = (self.feet_air_time > 0.) * self.contact_filt
+        contact = self.contact_forces[:, self.feet_indices, 2] > 1.0
         self.feet_air_time += self.dt
-        air_time = self.feet_air_time.clamp(0, 0.5) * first_contact
-        self.feet_air_time *= ~self.contact_filt
-        return air_time.sum(dim=1)
+        self.feet_contact_time += self.dt
+        self.feet_air_time *= ~contact
+        self.feet_contact_time *= contact
+
+        in_mode_time = torch.where(contact, self.feet_contact_time, self.feet_air_time)
+        single_stance = torch.sum(contact.int(), dim=1) == 1
+        reward = torch.min(
+            torch.where(single_stance.unsqueeze(-1), in_mode_time, 0.0), dim=1
+        )[0]
+        reward = torch.clamp(reward, max=0.5)
+        reward *= self._has_motion_command()
+        self.last_contacts = contact
+        return reward
 
     def _reward_feet_contact_number(self):
         """
         Calculates a reward based on the number of feet contacts aligning with the gait phase. 
         Rewards or penalizes depending on whether the foot contact matches the expected gait phase.
         """
-        contact = self.contact_forces[:, self.feet_indices, 2] > 5.
+        contact = self.contact_forces[:, self.feet_indices, 2] > 1.0
         stance_mask = self._get_gait_phase()
         reward = torch.where(contact == stance_mask, 1.0, -0.3)
         return torch.mean(reward, dim=1)
@@ -388,28 +485,29 @@ class G1walkFreeEnv(LeggedRobot):
         Calculates the reward for maintaining a flat base orientation. It penalizes deviation 
         from the desired base orientation using the base euler angles and the projected gravity vector.
         """
-        quat_mismatch = torch.exp(-torch.sum(torch.abs(self.base_euler_xyz[:, :2]), dim=1) * 10)
-        orientation = torch.exp(-torch.norm(self.projected_gravity[:, :2], dim=1) * 20)
-        return (quat_mismatch + orientation) / 2.
+        orientation_error = torch.sum(torch.square(self.projected_gravity[:, :2]), dim=1)
+        return torch.exp(-20.0 * orientation_error)
 
     def _reward_feet_contact_forces(self):
         """
         Calculates the reward for keeping contact forces within a specified range. Penalizes
         high contact forces on the feet.
         """
-        return torch.sum((torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1) - self.cfg.rewards.max_contact_force).clip(0, 400), dim=1)
+        foot_force_z = torch.abs(self.contact_forces[:, self.feet_indices, 2])
+        return torch.sum((foot_force_z - self.cfg.rewards.max_contact_force).clip(0, 400), dim=1)
 
     def _reward_default_joint_pos(self):
         """
         Calculates the reward for keeping joint positions close to default positions,
         with extra focus on hip roll/yaw deviations.
         """
-        joint_diff = self.dof_pos - self.default_joint_pd_target
-        left_yaw_roll = joint_diff[:, [self.left_hip_roll_idx, self.left_hip_yaw_idx]]
-        right_yaw_roll = joint_diff[:, [self.right_hip_roll_idx, self.right_hip_yaw_idx]]
-        yaw_roll = torch.norm(left_yaw_roll, dim=1) + torch.norm(right_yaw_roll, dim=1)
-        yaw_roll = torch.clamp(yaw_roll - 0.1, 0, 50)
-        return torch.exp(-yaw_roll * 100) - 0.01 * torch.norm(joint_diff, dim=1)
+        zero_cmd_mask = ~self._has_motion_command()
+        joint_diff = torch.abs(self.dof_pos - self.default_joint_pd_target)
+        hip_bias = joint_diff[
+            :, [self.left_hip_roll_idx, self.left_hip_yaw_idx, self.right_hip_roll_idx, self.right_hip_yaw_idx]
+        ].sum(dim=1)
+        total_deviation = joint_diff.sum(dim=1) + hip_bias
+        return torch.exp(-2.0 * total_deviation) * zero_cmd_mask.float()
 
     def _reward_base_height(self):
         """
@@ -418,10 +516,13 @@ class G1walkFreeEnv(LeggedRobot):
         of its feet when they are in contact with the ground.
         """
         stance_mask = self._get_gait_phase()
+        stance_count = torch.clamp(torch.sum(stance_mask, dim=1), min=1.0)
         measured_heights = torch.sum(
-            self.rigid_state[:, self.feet_indices, 2] * stance_mask, dim=1) / torch.sum(stance_mask, dim=1)
+            self.rigid_state[:, self.feet_indices, 2] * stance_mask, dim=1
+        ) / stance_count
         base_height = self.root_states[:, 2] - (measured_heights - 0.05)
-        return torch.exp(-torch.abs(base_height - self.cfg.rewards.base_height_target) * 100)
+        height_error = base_height - self.cfg.rewards.base_height_target
+        return torch.exp(-100.0 * torch.square(height_error))
 
     def _reward_base_acc(self):
         """
@@ -439,7 +540,7 @@ class G1walkFreeEnv(LeggedRobot):
         Encourages the robot to maintain a stable velocity by penalizing large deviations.
         """
         lin_mismatch = torch.exp(-torch.square(self.base_lin_vel[:, 2]) * 10)
-        ang_mismatch = torch.exp(-torch.norm(self.base_ang_vel[:, :2], dim=1) * 5.)
+        ang_mismatch = torch.exp(-torch.sum(torch.square(self.base_ang_vel[:, :2]), dim=1) * 5.0)
 
         c_update = (lin_mismatch + ang_mismatch) / 2.
 
@@ -450,14 +551,15 @@ class G1walkFreeEnv(LeggedRobot):
         Calculates a reward for accurately tracking both linear and angular velocity commands.
         Penalizes deviations from specified linear and angular velocity targets.
         """
+        yaw_frame_lin_vel = self._get_yaw_frame_lin_vel()
         # Tracking of linear velocity commands (xy axes)
         lin_vel_error = torch.norm(
-            self.commands[:, :2] - self.base_lin_vel[:, :2], dim=1)
+            self.commands[:, :2] - yaw_frame_lin_vel[:, :2], dim=1)
         lin_vel_error_exp = torch.exp(-lin_vel_error * 10)
 
         # Tracking of angular velocity commands (yaw)
         ang_vel_error = torch.abs(
-            self.commands[:, 2] - self.base_ang_vel[:, 2])
+            self.commands[:, 2] - self.root_states[:, 12])
         ang_vel_error_exp = torch.exp(-ang_vel_error * 10)
 
         linear_error = 0.2 * (lin_vel_error + ang_vel_error)
@@ -469,8 +571,9 @@ class G1walkFreeEnv(LeggedRobot):
         Tracks linear velocity commands along the xy axes. 
         Calculates a reward based on how closely the robot's linear velocity matches the commanded values.
         """
+        yaw_frame_lin_vel = self._get_yaw_frame_lin_vel()
         lin_vel_error = torch.sum(torch.square(
-            self.commands[:, :2] - self.base_lin_vel[:, :2]), dim=1)
+            self.commands[:, :2] - yaw_frame_lin_vel[:, :2]), dim=1)
         return torch.exp(-lin_vel_error * self.cfg.rewards.tracking_sigma)
 
     def _reward_tracking_ang_vel(self):
@@ -480,7 +583,7 @@ class G1walkFreeEnv(LeggedRobot):
         """   
         
         ang_vel_error = torch.square(
-            self.commands[:, 2] - self.base_ang_vel[:, 2])
+            self.commands[:, 2] - self.root_states[:, 12])
         return torch.exp(-ang_vel_error * self.cfg.rewards.tracking_sigma)
     
     def _reward_feet_clearance(self):
@@ -489,7 +592,7 @@ class G1walkFreeEnv(LeggedRobot):
         Encourages appropriate lift of the feet during the swing phase of the gait.
         """
         # Compute feet contact mask
-        contact = self.contact_forces[:, self.feet_indices, 2] > 5.
+        contact = self.contact_forces[:, self.feet_indices, 2] > 1.0
 
         # Get the z-position of the feet and compute the change in z-position
         feet_z = self.rigid_state[:, self.feet_indices, 2] - 0.05
@@ -500,9 +603,8 @@ class G1walkFreeEnv(LeggedRobot):
         # Compute swing mask
         swing_mask = 1 - self._get_gait_phase()
 
-        # feet height should be closed to target feet height at the peak
-        rew_pos = torch.abs(self.feet_height - self.cfg.rewards.target_feet_height) < 0.01
-        rew_pos = torch.sum(rew_pos * swing_mask, dim=1)
+        feet_height_error = torch.square(self.feet_height - self.cfg.rewards.target_feet_height)
+        rew_pos = torch.sum(torch.exp(-40.0 * feet_height_error) * swing_mask, dim=1)
         self.feet_height *= ~contact
         return rew_pos
 
@@ -544,7 +646,7 @@ class G1walkFreeEnv(LeggedRobot):
         Penalizes the use of high torques in the robot's joints. Encourages efficient movement by minimizing
         the necessary force exerted by the motors.
         """
-        return torch.sum(torch.square(self.torques), dim=1)
+        return torch.norm(torch.abs(self.torques * self.dof_vel), dim=1)
 
     def _reward_dof_vel(self):
         """
@@ -587,10 +689,10 @@ class G1walkFreeEnv(LeggedRobot):
     def _reward_gait_feet_speed_periodic(self):
         foot_speed = torch.norm(self.rigid_state[:, self.feet_indices, 7:10], dim=-1)
         _, stance_clock = self._get_gait_clock()
-        return torch.sum(stance_clock * torch.exp(-4.0 * torch.square(foot_speed)), dim=1)
+        return torch.sum(stance_clock * torch.exp(-100.0 * torch.square(foot_speed)), dim=1)
 
     def _reward_gait_feet_support_periodic(self):
         contact_force = torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1)
         _, stance_clock = self._get_gait_clock()
-        support_force = 1.0 - torch.exp(-0.01 * torch.square(contact_force))
+        support_force = 1.0 - torch.exp(-10.0 * torch.square(contact_force))
         return torch.sum(stance_clock * support_force, dim=1)

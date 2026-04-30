@@ -601,8 +601,7 @@ class LeggedRobot(BaseTask):
              3. Store indices of different bodies of the robot
         """
         asset_path = self.cfg.asset.file.format(LEGGED_GYM_ROOT_DIR=LEGGED_GYM_ROOT_DIR)
-        asset_root = os.path.dirname(asset_path)
-        asset_file = os.path.basename(asset_path)
+        asset_root, asset_file = self._resolve_asset_root_and_file(asset_path)
 
         asset_options = gymapi.AssetOptions()
         asset_options.default_dof_drive_mode = self.cfg.asset.default_dof_drive_mode
@@ -638,7 +637,6 @@ class LeggedRobot(BaseTask):
         termination_contact_names = []
         for name in self.cfg.asset.terminate_after_contacts_on:
             termination_contact_names.extend([s for s in body_names if name in s])
-
         base_init_state_list = self.cfg.init_state.pos + self.cfg.init_state.rot + self.cfg.init_state.lin_vel + self.cfg.init_state.ang_vel
         self.base_init_state = to_torch(base_init_state_list, device=self.device, requires_grad=False)
         start_pose = gymapi.Transform()
@@ -685,6 +683,23 @@ class LeggedRobot(BaseTask):
         self.termination_contact_indices = torch.zeros(len(termination_contact_names), dtype=torch.long, device=self.device, requires_grad=False)
         for i in range(len(termination_contact_names)):
             self.termination_contact_indices[i] = self.gym.find_actor_rigid_body_handle(self.envs[0], self.actor_handles[0], termination_contact_names[i])
+
+    def _resolve_asset_root_and_file(self, asset_path):
+        asset_path = os.path.abspath(asset_path)
+        asset_root = os.path.dirname(asset_path)
+        asset_file = os.path.basename(asset_path)
+
+        # Many bundled robot assets keep URDFs in a sibling `urdf/` directory
+        # while meshes live under `<robot_root>/meshes/`. Isaac Gym resolves mesh
+        # paths relative to `asset_root`, so promote the root one level when needed.
+        parent_dir = os.path.dirname(asset_root)
+        sibling_mesh_dir = os.path.join(parent_dir, "meshes")
+        if os.path.basename(asset_root) == "urdf" and os.path.isdir(sibling_mesh_dir):
+            asset_root = parent_dir
+            asset_file = os.path.relpath(asset_path, asset_root)
+            print(f"LeggedRobot: resolved asset root to {asset_root} for mesh lookup.")
+
+        return asset_root, asset_file
 
     def _get_env_origins(self):
         """ Sets environment origins. On rough terrain the origins are defined by the terrain platforms.

@@ -4,7 +4,6 @@ import os
 import numpy as np
 
 from humanoid.amp_motion_utils import (
-    G1_DEFAULT_DOF_POS,
     build_amp_observations_from_motion,
     canonicalize_motion_dict,
     finite_difference,
@@ -20,7 +19,7 @@ def parse_args():
     parser.add_argument(
         "--absolute_dof_pos",
         action="store_true",
-        help="Store absolute dof positions in amp_obs instead of centering them by the default pose.",
+        help="Deprecated compatibility flag. TienKung-style AMP export always uses absolute joint positions.",
     )
     return parser.parse_args()
 
@@ -40,15 +39,21 @@ def main():
             "The visualization motion file does not contain feet/end-effector positions. "
             "Please carry them through during conversion before exporting AMP expert data."
         )
+    hand_pos_world = motion["hand_pos_world"]
+    if hand_pos_world is None or hand_pos_world.size == 0:
+        raise ValueError(
+            "The visualization motion file does not contain hand end-effector positions. "
+            "Please carry them through during conversion before exporting AMP expert data."
+        )
 
     amp_obs = build_amp_observations_from_motion(
         motion["dof_pos"],
         dof_vel,
         feet_pos_world,
+        hand_pos_world,
         motion["root_pos"],
         motion["root_quat"],
-        default_dof_pos=G1_DEFAULT_DOF_POS,
-        subtract_default=not args.absolute_dof_pos,
+        joint_names=motion["joint_names"],
     )
 
     os.makedirs(os.path.dirname(os.path.abspath(args.output)), exist_ok=True)
@@ -57,6 +62,9 @@ def main():
         amp_obs=amp_obs,
         dof_pos=motion["dof_pos"],
         dof_vel=dof_vel,
+        root_pos=motion["root_pos"],
+        root_quat=motion["root_quat"],
+        hand_pos_world=hand_pos_world,
         feet_pos_world=feet_pos_world,
         joint_names=np.asarray(motion["joint_names"], dtype="<U64"),
         fps=np.asarray(motion["fps"], dtype=np.float32),

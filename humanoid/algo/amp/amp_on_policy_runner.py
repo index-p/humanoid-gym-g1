@@ -3,6 +3,7 @@ import statistics
 import time
 from collections import deque
 from datetime import datetime
+import glob
 
 import torch
 import wandb
@@ -40,12 +41,13 @@ class AMPOnPolicyRunner:
         actor_critic = actor_critic_class(
             self.env.num_obs, num_critic_obs, self.env.num_actions, **self.policy_cfg
         ).to(self.device)
+        amp_alg_cfg = self._build_amp_algorithm_cfg()
         self.alg = AMPPPO(
             actor_critic,
             amp_obs_dim=self.env.num_amp_obs,
             device=self.device,
             **self.alg_cfg,
-            **self.amp_cfg,
+            **amp_alg_cfg,
         )
         self.num_steps_per_env = self.cfg["num_steps_per_env"]
         self.save_interval = self.cfg["save_interval"]
@@ -67,17 +69,56 @@ class AMPOnPolicyRunner:
 
         _, _ = self.env.reset()
 
+    def _build_amp_algorithm_cfg(self):
+        loader_only_keys = {"motion_files", "motion_files_display", "amp_num_preload_transitions"}
+        return {
+            key: value for key, value in self.amp_cfg.items() if key not in loader_only_keys
+        }
+
+    def _resolve_motion_patterns(self, motion_patterns):
+        resolved_patterns = [
+            motion_pattern.format(LEGGED_GYM_ROOT_DIR=LEGGED_GYM_ROOT_DIR)
+            for motion_pattern in motion_patterns
+        ]
+        matched_files = []
+        for pattern in resolved_patterns:
+            matches = sorted(glob.glob(os.path.expanduser(pattern)))
+            if matches:
+                matched_files.extend(matches)
+            elif os.path.isfile(pattern):
+                matched_files.append(pattern)
+        return resolved_patterns, sorted(dict.fromkeys(matched_files))
+
+    def _log_motion_file_summary(self, label, resolved_patterns, matched_files):
+        if not resolved_patterns:
+            print(f"AMPOnPolicyRunner: no {label} patterns configured.")
+            return
+        print(
+            f"AMPOnPolicyRunner: {label} patterns={len(resolved_patterns)} matched_files={len(matched_files)}"
+        )
+        if matched_files:
+            preview = matched_files[: min(3, len(matched_files))]
+            for path in preview:
+                print(f"  {label}: {path}")
+            if len(matched_files) > len(preview):
+                print(f"  {label}: ... and {len(matched_files) - len(preview)} more")
+
     def _build_motion_loader(self):
         motion_files = self.amp_cfg.get("motion_files", [])
-        resolved_files = [
-            motion_file.format(LEGGED_GYM_ROOT_DIR=LEGGED_GYM_ROOT_DIR)
-            for motion_file in motion_files
-        ]
-        if not resolved_files:
+        display_motion_files = self.amp_cfg.get("motion_files_display", [])
+        resolved_display_patterns, matched_display_files = self._resolve_motion_patterns(display_motion_files)
+        self._log_motion_file_summary("motion_files_display", resolved_display_patterns, matched_display_files)
+
+        resolved_motion_patterns, matched_motion_files = self._resolve_motion_patterns(motion_files)
+        self._log_motion_file_summary("motion_files", resolved_motion_patterns, matched_motion_files)
+        if not resolved_motion_patterns:
             print("AMPOnPolicyRunner: no motion files configured, discriminator training will be skipped.")
             return None
         loader = AMPMotionLoader(
-            resolved_files, amp_obs_dim=self.env.num_amp_obs, device=self.device
+            resolved_motion_patterns,
+            amp_obs_dim=self.env.num_amp_obs,
+            num_preload_transitions=self.amp_cfg.get("amp_num_preload_transitions"),
+            device=self.device,
         )
         if len(loader) == 0:
             print("AMPOnPolicyRunner: motion files resolved but no AMP transitions were loaded.")
@@ -233,6 +274,9 @@ class AMPOnPolicyRunner:
                 "optimizer_state_dict": self.alg.optimizer.state_dict(),
                 "discriminator_state_dict": self.alg.discriminator.state_dict(),
                 "discriminator_optimizer_state_dict": self.alg.discriminator_optimizer.state_dict(),
+                "amp_normalizer_state_dict": None
+                if self.alg.amp_normalizer is None
+                else self.alg.amp_normalizer.state_dict(),
                 "iter": self.current_learning_iteration,
                 "infos": infos,
             },
@@ -250,6 +294,8 @@ class AMPOnPolicyRunner:
                 )
         if "discriminator_state_dict" in loaded_dict:
             self.alg.discriminator.load_state_dict(loaded_dict["discriminator_state_dict"])
+        if self.alg.amp_normalizer is not None and loaded_dict.get("amp_normalizer_state_dict") is not None:
+            self.alg.amp_normalizer.load_state_dict(loaded_dict["amp_normalizer_state_dict"])
         self.current_learning_iteration = loaded_dict["iter"]
         return loaded_dict["infos"]
 
