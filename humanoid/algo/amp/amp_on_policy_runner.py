@@ -231,7 +231,37 @@ class AMPOnPolicyRunner:
         self.writer.add_scalar("Loss/value_function", metrics["value_loss"], locs["it"])
         self.writer.add_scalar("Loss/surrogate", metrics["surrogate_loss"], locs["it"])
         self.writer.add_scalar("Loss/discriminator", metrics["discriminator_loss"], locs["it"])
+        self.writer.add_scalar(
+            "Loss/discriminator_policy",
+            metrics["discriminator_policy_loss"],
+            locs["it"],
+        )
+        self.writer.add_scalar(
+            "Loss/discriminator_expert",
+            metrics["discriminator_expert_loss"],
+            locs["it"],
+        )
+        self.writer.add_scalar(
+            "Loss/discriminator_grad_penalty",
+            metrics["discriminator_grad_penalty"],
+            locs["it"],
+        )
         self.writer.add_scalar("Train/amp_reward", metrics["amp_reward"], locs["it"])
+        self.writer.add_scalar(
+            "Train/discriminator_policy_prob",
+            metrics["discriminator_policy_prob"],
+            locs["it"],
+        )
+        self.writer.add_scalar(
+            "Train/discriminator_expert_prob",
+            metrics["discriminator_expert_prob"],
+            locs["it"],
+        )
+        self.writer.add_scalar(
+            "Train/discriminator_prob_gap",
+            metrics["discriminator_prob_gap"],
+            locs["it"],
+        )
         self.writer.add_scalar("Loss/learning_rate", self.alg.learning_rate, locs["it"])
         self.writer.add_scalar("Policy/mean_noise_std", mean_std.item(), locs["it"])
         self.writer.add_scalar("Perf/total_fps", fps, locs["it"])
@@ -249,6 +279,12 @@ class AMPOnPolicyRunner:
             f"{'Value function loss:':>{pad}} {metrics['value_loss']:.4f}\n"
             f"{'Surrogate loss:':>{pad}} {metrics['surrogate_loss']:.4f}\n"
             f"{'Discriminator loss:':>{pad}} {metrics['discriminator_loss']:.4f}\n"
+            f"{'Disc policy loss:':>{pad}} {metrics['discriminator_policy_loss']:.4f}\n"
+            f"{'Disc expert loss:':>{pad}} {metrics['discriminator_expert_loss']:.4f}\n"
+            f"{'Disc grad penalty:':>{pad}} {metrics['discriminator_grad_penalty']:.4f}\n"
+            f"{'Disc policy prob:':>{pad}} {metrics['discriminator_policy_prob']:.4f}\n"
+            f"{'Disc expert prob:':>{pad}} {metrics['discriminator_expert_prob']:.4f}\n"
+            f"{'Disc prob gap:':>{pad}} {metrics['discriminator_prob_gap']:.4f}\n"
             f"{'Mean AMP reward:':>{pad}} {metrics['amp_reward']:.4f}\n"
             f"{'Mean action noise std:':>{pad}} {mean_std.item():.2f}\n"
         )

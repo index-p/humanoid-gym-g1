@@ -56,6 +56,12 @@ class AMPPPO(PPO):
             "surrogate_loss": 0.0,
             "discriminator_loss": 0.0,
             "amp_reward": 0.0,
+            "discriminator_policy_loss": 0.0,
+            "discriminator_expert_loss": 0.0,
+            "discriminator_grad_penalty": 0.0,
+            "discriminator_policy_prob": 0.0,
+            "discriminator_expert_prob": 0.0,
+            "discriminator_prob_gap": 0.0,
         }
 
     def set_motion_loader(self, motion_loader):
@@ -125,7 +131,14 @@ class AMPPPO(PPO):
 
     def _compute_discriminator_loss(self):
         if self.motion_loader is None or len(self.motion_loader) == 0 or len(self.replay_buffer) == 0:
-            return torch.tensor(0.0, device=self.device)
+            return torch.tensor(0.0, device=self.device), {
+                "discriminator_policy_loss": 0.0,
+                "discriminator_expert_loss": 0.0,
+                "discriminator_grad_penalty": 0.0,
+                "discriminator_policy_prob": 0.0,
+                "discriminator_expert_prob": 0.0,
+                "discriminator_prob_gap": 0.0,
+            }
 
         batch_size = min(self.amp_discr_batch_size, len(self.replay_buffer), len(self.motion_loader))
         policy_amp_obs, policy_next_amp_obs = self.replay_buffer.sample(batch_size)
@@ -153,7 +166,18 @@ class AMPPPO(PPO):
         )[0]
         grad_penalty = gradients.pow(2).sum(dim=-1).mean()
 
-        return policy_loss + expert_loss + self.amp_grad_penalty_coef * grad_penalty
+        total_loss = policy_loss + expert_loss + self.amp_grad_penalty_coef * grad_penalty
+        stats = {
+            "discriminator_policy_loss": policy_loss.item(),
+            "discriminator_expert_loss": expert_loss.item(),
+            "discriminator_grad_penalty": grad_penalty.item(),
+            "discriminator_policy_prob": torch.sigmoid(policy_logits).mean().item(),
+            "discriminator_expert_prob": torch.sigmoid(expert_logits).mean().item(),
+        }
+        stats["discriminator_prob_gap"] = (
+            stats["discriminator_expert_prob"] - stats["discriminator_policy_prob"]
+        )
+        return total_loss, stats
 
     def update(self):
         mean_value_loss = 0.0
@@ -243,7 +267,7 @@ class AMPPPO(PPO):
         mean_value_loss /= num_updates
         mean_surrogate_loss /= num_updates
 
-        discriminator_loss = self._compute_discriminator_loss()
+        discriminator_loss, discriminator_stats = self._compute_discriminator_loss()
         if discriminator_loss.requires_grad:
             self.discriminator_optimizer.zero_grad()
             discriminator_loss.backward()
@@ -257,6 +281,7 @@ class AMPPPO(PPO):
             "surrogate_loss": mean_surrogate_loss,
             "discriminator_loss": discriminator_loss_value,
             "amp_reward": self.last_update_stats.get("amp_reward", 0.0),
+            **discriminator_stats,
         }
         self.storage.clear()
         return self.last_update_stats
