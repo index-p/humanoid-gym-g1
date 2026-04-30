@@ -66,4 +66,4 @@ __pycache__
 MUJOCO_LOG.TXT
 requirements.txt
 run_code.txt
-data/*
+
