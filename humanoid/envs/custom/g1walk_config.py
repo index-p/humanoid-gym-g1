@@ -265,7 +265,7 @@ class G1walkCfg(LeggedRobotCfg):
             track_vel_hard = 0.8
             # base pos
             default_joint_pos = 0.0
-            joint_deviation_l1 = -0.3
+            joint_deviation_l1 = -0.5
             orientation = 1.
             base_height = 0.2
             base_acc = 0.2
@@ -301,7 +301,7 @@ class G1walkCfgPPO(LeggedRobotCfgPPO):
 
     class algorithm(LeggedRobotCfgPPO.algorithm):
         entropy_coef = 0.001
-        learning_rate = 1e-5
+        learning_rate = 2e-5
         num_learning_epochs = 2
         gamma = 0.994
         lam = 0.9
@@ -344,8 +344,8 @@ class G1walkCfgAMPPPO(G1walkCfgPPO):
         ]
         amp_reward_coef = 0.5
         amp_task_reward_lerp = 0.3
-        amp_discr_hidden_dims = [1024, 512, 256]
-        amp_discr_learning_rate = 1e-4
+        amp_discr_hidden_dims = [512, 256]
+        amp_discr_learning_rate = 1e-5
         amp_discr_batch_size = 4096
         amp_replay_buffer_size = 300000
         amp_grad_penalty_coef = 10.0
