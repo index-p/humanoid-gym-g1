@@ -466,7 +466,10 @@ class G1walkFreeEnv(LeggedRobot):
             torch.where(single_stance.unsqueeze(-1), in_mode_time, 0.0), dim=1
         )[0]
         reward = torch.clamp(reward, max=0.5)
-        reward *= self._has_motion_command()
+        motion_command_mask = (
+            torch.norm(self.commands[:, :2], dim=1) + torch.abs(self.commands[:, 2])
+        ) > 0.1
+        reward *= motion_command_mask
         self.last_contacts = contact
         return reward
 
