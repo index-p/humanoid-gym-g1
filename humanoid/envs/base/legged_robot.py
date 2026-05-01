@@ -631,6 +631,22 @@ class LeggedRobot(BaseTask):
         self.num_dofs = len(self.dof_names)
         feet_names = [s for s in body_names if self.cfg.asset.foot_name in s]
         knee_names = [s for s in body_names if self.cfg.asset.knee_name in s]
+
+        def _order_bodies_left_right(names, label):
+            if len(names) <= 1:
+                return names
+            left_names = [name for name in names if "left" in name.lower()]
+            right_names = [name for name in names if "right" in name.lower()]
+            if len(left_names) == 1 and len(right_names) == 1 and len(names) == 2:
+                return [left_names[0], right_names[0]]
+            print(
+                f"LeggedRobot: keeping original {label} order because left/right "
+                f"disambiguation failed for {names}."
+            )
+            return names
+
+        feet_names = _order_bodies_left_right(feet_names, "feet")
+        knee_names = _order_bodies_left_right(knee_names, "knees")
         penalized_contact_names = []
         for name in self.cfg.asset.penalize_contacts_on:
             penalized_contact_names.extend([s for s in body_names if name in s])
