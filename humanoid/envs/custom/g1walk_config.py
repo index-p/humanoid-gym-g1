@@ -245,7 +245,7 @@ class G1walkCfg(LeggedRobotCfg):
         max_contact_force = 450  # Forces above this value are penalized
 
         class scales:
-            feet_clearance = 1.
+            feet_clearance = 0.0
             feet_contact_number = 0.0
             # gait
             feet_air_time = 1.
@@ -264,7 +264,7 @@ class G1walkCfg(LeggedRobotCfg):
             low_speed = 0.4
             track_vel_hard = 0.8
             # base pos
-            default_joint_pos = 0.5
+            default_joint_pos = 0.0
             orientation = 1.
             base_height = 0.2
             base_acc = 0.2
@@ -330,18 +330,22 @@ class G1walkCfgAMPPPO(G1walkCfgPPO):
 
     class amp:
         motion_files_display = [
-            "{LEGGED_GYM_ROOT_DIR}/data/motion_visualization/*/*.npz",
+            "{LEGGED_GYM_ROOT_DIR}/data/motion_visualization/Male1Walking_c3d/*.npz",
+            "{LEGGED_GYM_ROOT_DIR}/data/motion_visualization/Male2Walking_c3d/*.npz",
+            "{LEGGED_GYM_ROOT_DIR}/data/motion_visualization/Female1Walking_c3d/*.npz",
         ]
         motion_files = [
-            "{LEGGED_GYM_ROOT_DIR}/data/motion_amp_expert/*/*.npz",
+            "{LEGGED_GYM_ROOT_DIR}/data/motion_amp_expert/Male1Walking_c3d/*.npz",
+            "{LEGGED_GYM_ROOT_DIR}/data/motion_amp_expert/Male2Walking_c3d/*.npz",
+            "{LEGGED_GYM_ROOT_DIR}/data/motion_amp_expert/Female1Walking_c3d/*.npz",
         ]
-        amp_reward_coef = 0.3
+        amp_reward_coef = 0.5
         amp_task_reward_lerp = 0.3
-        amp_discr_hidden_dims = [512, 256]
+        amp_discr_hidden_dims = [1024, 512, 256]
         amp_discr_learning_rate = 1e-4
         amp_discr_batch_size = 4096
-        amp_replay_buffer_size = 200000
+        amp_replay_buffer_size = 300000
         amp_grad_penalty_coef = 10.0
-        amp_num_preload_transitions = 200000
+        amp_num_preload_transitions = 50000
         amp_normalize_obs = True
         amp_norm_epsilon = 1e-5
