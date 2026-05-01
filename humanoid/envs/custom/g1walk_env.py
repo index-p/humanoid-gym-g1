@@ -512,6 +512,15 @@ class G1walkFreeEnv(LeggedRobot):
         total_deviation = joint_diff.sum(dim=1) + hip_bias
         return torch.exp(-2.0 * total_deviation) * zero_cmd_mask.float()
 
+    def _reward_joint_deviation_l1(self):
+        """
+        TienKung-style standing penalty: penalize L1 joint deviation from the
+        default pose under near-zero motion commands.
+        """
+        zero_cmd_mask = ~self._has_motion_command()
+        joint_diff_l1 = torch.mean(torch.abs(self.dof_pos - self.default_joint_pd_target), dim=1)
+        return joint_diff_l1 * zero_cmd_mask.float()
+
     def _reward_base_height(self):
         """
         Calculates the reward based on the robot's base height. Penalizes deviation from a target base height.
@@ -683,6 +692,26 @@ class G1walkFreeEnv(LeggedRobot):
             self.actions + self.last_last_actions - 2 * self.last_actions), dim=1)
         term_3 = 0.05 * torch.sum(torch.abs(self.actions), dim=1)
         return term_1 + term_2 + term_3
+
+    def _reward_hip_roll_action(self):
+        """
+        Penalize excessive left/right hip-roll actions to reduce lateral swaying
+        and cross-over compensation.
+        """
+        hip_roll_actions = self.actions[
+            :, [self.left_hip_roll_idx, self.right_hip_roll_idx]
+        ]
+        return torch.sum(torch.square(hip_roll_actions), dim=1)
+
+    def _reward_hip_yaw_action(self):
+        """
+        Penalize excessive left/right hip-yaw actions to reduce unnecessary
+        twisting around the vertical axis during gait.
+        """
+        hip_yaw_actions = self.actions[
+            :, [self.left_hip_yaw_idx, self.right_hip_yaw_idx]
+        ]
+        return torch.sum(torch.square(hip_yaw_actions), dim=1)
 
     def _reward_gait_feet_force_periodic(self):
         contact_force = torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1)
