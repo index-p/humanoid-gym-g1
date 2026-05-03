@@ -265,14 +265,14 @@ class G1walkCfg(LeggedRobotCfg):
             track_vel_hard = 0.8
             # base pos
             default_joint_pos = 0.0
-            joint_deviation_l1 = -0.5
+            joint_deviation_l1 = -0.1
             orientation = 1.
             base_height = 0.2
             base_acc = 0.2
             # energy
             action_smoothness = -0.002
-            hip_roll_action = -0.05
-            hip_yaw_action = -0.01
+            hip_roll_action = -0.0005
+            hip_yaw_action = -0.0001
             torques = -1e-5
             dof_vel = -5e-4
             dof_acc = -1e-7
