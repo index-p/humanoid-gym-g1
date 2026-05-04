@@ -353,6 +353,9 @@ class G1walkFreeEnv(LeggedRobot):
             torch.norm(self.commands[:, :2], dim=1) + torch.abs(self.commands[:, 2])
         ) > 0.1
 
+    def _motion_command_mask(self):
+        return self._has_motion_command().float()
+
     def _cache_terminal_amp_observations(self, env_ids):
         if len(env_ids) == 0:
             self._terminal_amp_obs = torch.empty(0, self.num_amp_obs, device=self.device)
@@ -466,10 +469,7 @@ class G1walkFreeEnv(LeggedRobot):
             torch.where(single_stance.unsqueeze(-1), in_mode_time, 0.0), dim=1
         )[0]
         reward = torch.clamp(reward, max=0.5)
-        motion_command_mask = (
-            torch.norm(self.commands[:, :2], dim=1) + torch.abs(self.commands[:, 2])
-        ) > 0.1
-        reward *= motion_command_mask
+        reward *= self._motion_command_mask()
         self.last_contacts = contact
         return reward
 
@@ -481,7 +481,7 @@ class G1walkFreeEnv(LeggedRobot):
         contact = self.contact_forces[:, self.feet_indices, 2] > 1.0
         stance_mask = self._get_gait_phase()
         reward = torch.where(contact == stance_mask, 1.0, -0.3)
-        return torch.mean(reward, dim=1)
+        return torch.mean(reward, dim=1) * self._motion_command_mask()
 
     def _reward_orientation(self):
         """
@@ -558,6 +558,12 @@ class G1walkFreeEnv(LeggedRobot):
 
         return c_update
 
+    def _reward_base_vertical_vel(self):
+        """
+        Penalize vertical base velocity to reduce hopping and bouncing.
+        """
+        return torch.square(self.base_lin_vel[:, 2])
+
     def _reward_track_vel_hard(self):
         """
         Calculates a reward for accurately tracking both linear and angular velocity commands.
@@ -618,7 +624,7 @@ class G1walkFreeEnv(LeggedRobot):
         feet_height_error = torch.square(self.feet_height - self.cfg.rewards.target_feet_height)
         rew_pos = torch.sum(torch.exp(-40.0 * feet_height_error) * swing_mask, dim=1)
         self.feet_height *= ~contact
-        return rew_pos
+        return rew_pos * self._motion_command_mask()
 
     def _reward_low_speed(self):
         """
@@ -716,15 +722,18 @@ class G1walkFreeEnv(LeggedRobot):
     def _reward_gait_feet_force_periodic(self):
         contact_force = torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1)
         swing_clock, _ = self._get_gait_clock()
-        return torch.sum(swing_clock * torch.exp(-0.02 * torch.square(contact_force)), dim=1)
+        reward = torch.sum(swing_clock * torch.exp(-0.02 * torch.square(contact_force)), dim=1)
+        return reward * self._motion_command_mask()
 
     def _reward_gait_feet_speed_periodic(self):
         foot_speed = torch.norm(self.rigid_state[:, self.feet_indices, 7:10], dim=-1)
         _, stance_clock = self._get_gait_clock()
-        return torch.sum(stance_clock * torch.exp(-100.0 * torch.square(foot_speed)), dim=1)
+        reward = torch.sum(stance_clock * torch.exp(-100.0 * torch.square(foot_speed)), dim=1)
+        return reward * self._motion_command_mask()
 
     def _reward_gait_feet_support_periodic(self):
         contact_force = torch.norm(self.contact_forces[:, self.feet_indices, :], dim=-1)
         _, stance_clock = self._get_gait_clock()
         support_force = 1.0 - torch.exp(-10.0 * torch.square(contact_force))
-        return torch.sum(stance_clock * support_force, dim=1)
+        reward = torch.sum(stance_clock * support_force, dim=1)
+        return reward * self._motion_command_mask()
