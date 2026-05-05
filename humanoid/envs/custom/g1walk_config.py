@@ -248,9 +248,9 @@ class G1walkCfg(LeggedRobotCfg):
             feet_clearance = 0.0
             feet_contact_number = 0.0
             # gait
-            feet_air_time = 1.2
-            gait_feet_force_periodic = 1.2
-            gait_feet_speed_periodic = 1.2
+            feet_air_time = 1.
+            gait_feet_force_periodic = 1.
+            gait_feet_speed_periodic = 1.
             gait_feet_support_periodic = 0.6
             foot_slip = -0.05
             feet_distance = 0.2
@@ -261,9 +261,9 @@ class G1walkCfg(LeggedRobotCfg):
             tracking_lin_vel = 1.5
             tracking_ang_vel = 1.1
             vel_mismatch_exp = 0.5  # lin_z; ang x,y
-            base_vertical_vel = -0.5
-            low_speed = 0.2
-            track_vel_hard = 0.5
+            base_vertical_vel = -0.05
+            low_speed = 0.4
+            track_vel_hard = 0.8
             # base pos
             default_joint_pos = 0.0
             joint_deviation_l1 = -0.05
@@ -272,8 +272,8 @@ class G1walkCfg(LeggedRobotCfg):
             base_acc = 0.2
             # energy
             action_smoothness = -0.0008
-            hip_roll_action = -0.0005
-            hip_yaw_action = -0.0002
+            hip_roll_action = -0.005
+            hip_yaw_action = -0.001
             torques = -1e-5
             dof_vel = -5e-4
             dof_acc = -1e-7
@@ -399,7 +399,7 @@ class G1walkCfgAMPPPO(G1walkCfgPPO):
             "{LEGGED_GYM_ROOT_DIR}/data/motion_amp_expert/Male2Walking_c3d/B5_-__Walk_backwards_stageii.npz",
             "{LEGGED_GYM_ROOT_DIR}/data/motion_amp_expert/Male2Walking_c3d/B9_-__Walk_turn_left_90_stageii.npz",
         ]
-        amp_reward_coef = 0.3
+        amp_reward_coef = 0.5
         amp_task_reward_lerp = 0.3
         amp_discr_hidden_dims = [512, 256]
         amp_discr_learning_rate = 1e-5
