@@ -112,6 +112,14 @@ class G1FreeEnv(LeggedRobot):
         phase = self.episode_length_buf * self.dt / cycle_time
         return phase
 
+    def _has_motion_command(self):
+        return (
+            torch.norm(self.commands[:, :2], dim=1) + torch.abs(self.commands[:, 2])
+        ) > 0.1
+
+    def _motion_command_mask(self):
+        return self._has_motion_command().float()
+
     def _get_gait_phase(self):
         # return float mask 1 is stance, 0 is swing
         phase = self._get_phase()
@@ -124,6 +132,7 @@ class G1FreeEnv(LeggedRobot):
         stance_mask[:, 1] = sin_pos < 0
         # Double support phase
         stance_mask[torch.abs(sin_pos) < 0.1] = 1
+        stance_mask[~self._has_motion_command()] = 1
 
         return stance_mask
     
@@ -148,6 +157,7 @@ class G1FreeEnv(LeggedRobot):
         self.ref_dof_pos[:, self.right_ankle_pitch_idx] = sin_pos_r * scale_1
         # Double support phase
         self.ref_dof_pos[torch.abs(sin_pos) < 0.1] = 0
+        self.ref_dof_pos[~self._has_motion_command()] = 0
 
         self.ref_action = 2 * self.ref_dof_pos
 
@@ -341,10 +351,7 @@ class G1FreeEnv(LeggedRobot):
         self.feet_air_time += self.dt
         air_time = self.feet_air_time.clamp(0, 0.5) * first_contact
         self.feet_air_time *= ~self.contact_filt
-        command_mask = (
-            torch.norm(self.commands[:, :2], dim=1) + torch.abs(self.commands[:, 2])
-        ) > 0.1
-        return air_time.sum(dim=1) * command_mask.float()
+        return air_time.sum(dim=1) * self._motion_command_mask()
 
     def _reward_feet_contact_number(self):
         """
