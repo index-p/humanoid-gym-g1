@@ -341,7 +341,10 @@ class G1FreeEnv(LeggedRobot):
         self.feet_air_time += self.dt
         air_time = self.feet_air_time.clamp(0, 0.5) * first_contact
         self.feet_air_time *= ~self.contact_filt
-        return air_time.sum(dim=1)
+        command_mask = (
+            torch.norm(self.commands[:, :2], dim=1) + torch.abs(self.commands[:, 2])
+        ) > 0.1
+        return air_time.sum(dim=1) * command_mask.float()
 
     def _reward_feet_contact_number(self):
         """
