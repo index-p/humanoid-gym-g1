@@ -239,7 +239,7 @@ class G1walkCfg(LeggedRobotCfg):
         gait_phase_offset_r = 0.5
         gait_transition_ratio = 0.05
         # if true negative total rewards are clipped at zero (avoids early termination problems)
-        only_positive_rewards = True
+        only_positive_rewards = False
         # tracking reward = exp(error*sigma)
         tracking_sigma = 5
         max_contact_force = 450  # Forces above this value are penalized
@@ -248,7 +248,7 @@ class G1walkCfg(LeggedRobotCfg):
             feet_clearance = 0.0
             feet_contact_number = 0.0
             # gait
-            feet_air_time = 1.
+            feet_air_time = 0.0
             gait_feet_force_periodic = 1.
             gait_feet_speed_periodic = 1.
             gait_feet_support_periodic = 0.6
