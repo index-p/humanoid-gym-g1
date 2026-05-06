@@ -107,6 +107,19 @@ class G1FreeEnv(LeggedRobot):
         self.gym.set_actor_root_state_tensor(
             self.sim, gymtorch.unwrap_tensor(self.root_states))
 
+    def _resample_commands(self, env_ids):
+        super()._resample_commands(env_ids)
+        zero_command_prob = getattr(self.cfg.commands, "zero_command_prob", 0.0)
+        if len(env_ids) == 0 or zero_command_prob <= 0.0:
+            return
+
+        zero_command_mask = torch.rand(len(env_ids), device=self.device) < zero_command_prob
+        zero_env_ids = env_ids[zero_command_mask]
+        if len(zero_env_ids) == 0:
+            return
+
+        self.commands[zero_env_ids, :3] = 0.0
+
     def  _get_phase(self):
         cycle_time = self.cfg.rewards.cycle_time
         phase = self.episode_length_buf * self.dt / cycle_time
@@ -224,6 +237,9 @@ class G1FreeEnv(LeggedRobot):
 
         sin_pos = torch.sin(2 * torch.pi * phase).unsqueeze(1)
         cos_pos = torch.cos(2 * torch.pi * phase).unsqueeze(1)
+        motion_mask = self._motion_command_mask().unsqueeze(1)
+        sin_pos = sin_pos * motion_mask
+        cos_pos = torch.where(motion_mask.bool(), cos_pos, torch.ones_like(cos_pos))
 
         stance_mask = self._get_gait_phase()
         contact_mask = self.contact_forces[:, self.feet_indices, 2] > 5.

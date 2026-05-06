@@ -203,6 +203,7 @@ class G1Cfg(LeggedRobotCfg):
         num_commands = 4
         resampling_time = 8.  # time before command are changed[s]
         heading_command = True  # if true: compute ang vel command from heading error
+        zero_command_prob = 0.2
 
         class ranges:
             #lin_vel_x = [-0.3, 0.6]   # min max [m/s]
