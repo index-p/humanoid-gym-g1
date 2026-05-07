@@ -245,10 +245,10 @@ class G1walkCfg(LeggedRobotCfg):
         max_contact_force = 450  # Forces above this value are penalized
 
         class scales:
-            feet_clearance = 0.0
-            feet_contact_number = 0.0
+            feet_clearance = 1.0
+            feet_contact_number = 1.2
             # gait
-            feet_air_time = 0.0
+            feet_air_time = 1.0
             gait_feet_force_periodic = 1.
             gait_feet_speed_periodic = 1.
             gait_feet_support_periodic = 0.6
@@ -256,12 +256,12 @@ class G1walkCfg(LeggedRobotCfg):
             feet_distance = 0.2
             knee_distance = 0.2
             # contact
-            feet_contact_forces = -0.005
+            feet_contact_forces = -0.01
             # vel tracking
             tracking_lin_vel = 1.5
             tracking_ang_vel = 1.1
             vel_mismatch_exp = 0.5  # lin_z; ang x,y
-            base_vertical_vel = -0.05
+            base_vertical_vel = -0.00
             low_speed = 0.4
             track_vel_hard = 0.8
             # base pos
@@ -302,7 +302,7 @@ class G1walkCfgPPO(LeggedRobotCfgPPO):
 
     class algorithm(LeggedRobotCfgPPO.algorithm):
         entropy_coef = 0.001
-        learning_rate = 2e-5
+        learning_rate = 1e-5
         num_learning_epochs = 2
         gamma = 0.994
         lam = 0.9
@@ -402,7 +402,7 @@ class G1walkCfgAMPPPO(G1walkCfgPPO):
         amp_reward_coef = 0.5
         amp_task_reward_lerp = 0.3
         amp_discr_hidden_dims = [512, 256]
-        amp_discr_learning_rate = 1e-5
+        amp_discr_learning_rate = 5e-6
         amp_discr_batch_size = 4096
         amp_replay_buffer_size = 300000
         amp_grad_penalty_coef = 10.0
