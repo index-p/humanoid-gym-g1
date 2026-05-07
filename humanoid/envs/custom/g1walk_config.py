@@ -237,7 +237,7 @@ class G1walkCfg(LeggedRobotCfg):
         gait_swing_ratio = 0.38
         gait_phase_offset_l = 0.0
         gait_phase_offset_r = 0.5
-        gait_transition_ratio = 0.05
+        gait_transition_ratio = 0.02
         # if true negative total rewards are clipped at zero (avoids early termination problems)
         only_positive_rewards = False
         # tracking reward = exp(error*sigma)
@@ -245,13 +245,14 @@ class G1walkCfg(LeggedRobotCfg):
         max_contact_force = 450  # Forces above this value are penalized
 
         class scales:
-            feet_clearance = 1.0
+            feet_clearance = 0.0
             feet_contact_number = 1.2
             # gait
             feet_air_time = 1.0
             gait_feet_force_periodic = 1.
             gait_feet_speed_periodic = 1.
             gait_feet_support_periodic = 0.6
+            double_flight = -2.0
             foot_slip = -0.05
             feet_distance = 0.2
             knee_distance = 0.2
@@ -400,7 +401,7 @@ class G1walkCfgAMPPPO(G1walkCfgPPO):
             "{LEGGED_GYM_ROOT_DIR}/data/motion_amp_expert/Male2Walking_c3d/B9_-__Walk_turn_left_90_stageii.npz",
         ]
         amp_reward_coef = 0.5
-        amp_task_reward_lerp = 0.3
+        amp_task_reward_lerp = 0.4
         amp_discr_hidden_dims = [512, 256]
         amp_discr_learning_rate = 5e-6
         amp_discr_batch_size = 4096
