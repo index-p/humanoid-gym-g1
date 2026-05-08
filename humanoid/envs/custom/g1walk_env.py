@@ -413,17 +413,33 @@ class G1walkFreeEnv(LeggedRobot):
         return self._terminal_amp_obs
 
 # ================================================ Rewards ================================================== #
-    def _reward_feet_distance(self):
+    def _feet_pos_yaw_frame(self):
+        root_pos = self.root_states[:, :3]
+        feet_world = self.rigid_state[:, self.feet_indices, :3] - root_pos.unsqueeze(1)
+        yaw_quat = self.base_quat.clone()
+        yaw_quat[:, :2] = 0.0
+        yaw_quat = normalize(yaw_quat)
+        foot_quat = yaw_quat.repeat_interleave(self.feet_indices.shape[0], dim=0)
+        return quat_rotate_inverse(
+            foot_quat, feet_world.reshape(-1, 3)
+        ).reshape(self.num_envs, -1, 3)
+
+    def _reward_feet_too_near_humanoid(self):
         """
-        Calculates the reward based on the distance between the feet. Penalize feet get close to each other or too far away.
+        TienKung-style penalty for the feet being too close to each other.
+        Use this with a negative reward scale.
         """
-        foot_pos = self.rigid_state[:, self.feet_indices, :2]
-        foot_dist = torch.norm(foot_pos[:, 0, :] - foot_pos[:, 1, :], dim=1)
-        fd = self.cfg.rewards.min_dist
-        max_df = self.cfg.rewards.max_dist
-        d_min = torch.clamp(foot_dist - fd, -0.5, 0.)
-        d_max = torch.clamp(foot_dist - max_df, 0, 0.5)
-        return (torch.exp(-torch.abs(d_min) * 100) + torch.exp(-torch.abs(d_max) * 100)) / 2
+        foot_pos = self.rigid_state[:, self.feet_indices, :3]
+        foot_dist = torch.norm(foot_pos[:, 0] - foot_pos[:, 1], dim=-1)
+        return torch.clamp(self.cfg.rewards.min_dist - foot_dist, min=0.0)
+
+    def _reward_feet_y_distance(self):
+        """
+        Penalize lateral foot separation in the robot yaw frame.
+        Use this with a negative reward scale.
+        """
+        foot_pos = self._feet_pos_yaw_frame()
+        return torch.abs(foot_pos[:, 0, 1] - foot_pos[:, 1, 1])
 
 
     def _reward_knee_distance(self):

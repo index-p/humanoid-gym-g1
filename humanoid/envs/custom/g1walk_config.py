@@ -254,8 +254,9 @@ class G1walkCfg(LeggedRobotCfg):
             gait_feet_support_periodic = 0.6
             double_flight = -2.0
             foot_slip = -0.05
-            feet_distance = 0.2
-            knee_distance = 0.2
+            feet_too_near_humanoid = -1.0
+            feet_y_distance = -0.5
+            knee_distance = 0.0
             # contact
             feet_contact_forces = -0.01
             # vel tracking
@@ -273,7 +274,7 @@ class G1walkCfg(LeggedRobotCfg):
             base_acc = 0.2
             # energy
             action_smoothness = -0.0008
-            hip_roll_action = -0.005
+            hip_roll_action = -0.008
             hip_yaw_action = -0.001
             torques = -1e-5
             dof_vel = -5e-4
