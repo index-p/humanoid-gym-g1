@@ -39,6 +39,9 @@ from .custom.humanoid_env import XBotLFreeEnv
 from .custom.g1_config import G1Cfg, G1CfgPPO
 from .custom.g1_env import G1FreeEnv
 
+from .custom.g1_amp_config import G1AMPCfg, G1AMPCfgPPO
+from .custom.g1_amp_env import G1AMPFreeEnv
+
 from .custom.g1walk_config import G1walkCfg, G1walkCfgPPO, G1walkCfgAMPPPO
 from .custom.g1walk_env import G1walkFreeEnv
 
@@ -47,4 +50,5 @@ from humanoid.utils.task_registry import task_registry
 
 task_registry.register( "humanoid_ppo", XBotLFreeEnv, XBotLCfg(), XBotLCfgPPO() )
 task_registry.register( "g1_ppo", G1FreeEnv, G1Cfg(), G1CfgPPO() )
+task_registry.register( "g1_amp_20dof", G1AMPFreeEnv, G1AMPCfg(), G1AMPCfgPPO() )
 task_registry.register( "g1_walk_amp", G1walkFreeEnv, G1walkCfg(), G1walkCfgAMPPPO() )
